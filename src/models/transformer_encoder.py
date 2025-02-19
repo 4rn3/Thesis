@@ -41,7 +41,7 @@ class TransEncoder(nn.Module):
         
         self.cond_features = cond_features
         self.cond_model = cond_model
-        assert self.cond_model in {"mlp", "te", "stft"}, "Chosen conditioning model was not valid, the options are mlp, te and spectro"
+        assert self.cond_model in {"mlp", "te", "stft"}, "Chosen conditioning model was not valid, the options are mlp, te and stft"
         if cond_model == "mlp":
             self.conditional_embedding = MLPConditionalEmbedding(self.seq_len, self.latent_dim)
         if cond_model == "te":

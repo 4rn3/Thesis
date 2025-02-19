@@ -43,15 +43,19 @@ def data_preprocess(subset_len=25000):
     
     data = pd.read_csv(data_dir)
     data.replace('Null', 0, inplace=True)
-    data = data.iloc[:subset_len, 3]
     
     cond_data = pd.read_csv(cond_data_dir)
     cond_data = cond_data[["time", "humidity", "temperature", "windSpeed"]]
     cond_data['time'] = pd.to_datetime(cond_data['time'])
     cond_data.set_index('time', inplace=True)
     cond_data = cond_data.resample('30min').interpolate(method='linear')
-    cond_data = cond_data.iloc[:subset_len, :]
- 
+    
+    if subset_len != "None":
+       data = data.iloc[:subset_len, 3]
+       cond_data = cond_data.iloc[:subset_len, :]
+    else:    
+        data = data.iloc[:len(cond_data), 3] #for this test dataset cond data is less than actual data
+    
     return data, cond_data
 
 def LoadData(seq_len, subset_len):
