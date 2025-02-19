@@ -1,0 +1,6 @@
+*.txt
+*.png
+*.pth
+*.csv
+
+./logging/weights/
