@@ -2,5 +2,8 @@
 *.png
 *.pth
 *.csv
+*.pyc
 
+./__pycache__
 ./logging/weights/
+./logging/tensorboard/*

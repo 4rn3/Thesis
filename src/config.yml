@@ -5,7 +5,7 @@ objective: "pred_noise"
 betas: (0.9, 0.99)
 
 #General NN
-epochs: 6
+epochs: 10
 batch_size: 32
 model_name: "TransEncoder"
 cond_model: "te"
