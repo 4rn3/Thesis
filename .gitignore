@@ -3,6 +3,7 @@
 *.pth
 *.csv
 *.pyc
+*.0
 
 ./__pycache__
 ./logging/weights/
