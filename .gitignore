@@ -5,5 +5,5 @@
 *.pyc
 *.0
 
-/logging/weights/
-/logging/tensorboard/
+src/logging/weights/
+src/logging/tensorboard/
