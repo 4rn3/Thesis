@@ -7,5 +7,5 @@
 
 ./__pycache__
 ./logging/weights/
-./logging/tensorboard/
+./logging/tensorboard
 ./logging/tensorboard/*
