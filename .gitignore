@@ -1,9 +1,14 @@
-*.txt
 *.png
 *.pth
 *.csv
 *.pyc
-*.0
 
 src/logging/weights/
 src/logging/tensorboard/
+src/logging/logs/
+src/logging/plots/
+
+src/__pycache__
+
+src/data/conditioning_data/
+src/data/meter_data/
