@@ -3,6 +3,7 @@
 *.csv
 *.pyc
 
+src/logging/
 src/logging/weights/
 src/logging/tensorboard/
 src/logging/logs/
