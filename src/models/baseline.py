@@ -111,7 +111,7 @@ class BaseLineModel(nn.Module):
             mlp_out = torch.cat((mlp_out, cond_emb), dim=1)
             #print(f"mlp_out shape: {mlp_out.shape}")
             #mlp_out = mlp_out.mean(dim=1, keepdim=True)
-        mlp_out = mlp_out[:, :1, :]
+        mlp_out = mlp_out[:, :self.channels, :]
         #print(f"mlp output shape: {mlp_out.shape}")
         
         final_out = self.linear(mlp_out)

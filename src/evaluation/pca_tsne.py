@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pandas as pd
 import seaborn as sb
@@ -6,12 +8,17 @@ import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
-def visualize_pca_tsne(ori_data, fake_data, seq_len, filename, cond, train_test):
+def visualize_pca_tsne(ori_data, fake_data, seq_len, filename, cond, train_test, feature):
     
-    f_name = f'./logging/plots/{filename}_pca_tsne_without_conditioning_{train_test}.png'
+    plot_dir = f'./logging/plots/{feature}/'
+    
+    if not os.path.exists(plot_dir):
+        os.makedirs(plot_dir)
+    
+    f_name = f'./logging/plots/{feature}/{filename}_pca_tsne_without_conditioning_{train_test}_{feature}.png'
     
     if cond:
-        f_name = f'./logging/plots/{filename}_pca_tsne_with_conditioning_{train_test}.png'
+        f_name = f'./logging/plots/{feature}/{filename}_pca_tsne_with_conditioning_{train_test}_{feature}.png'
     
     ori_data = np.asarray(ori_data)
     fake_data = np.asarray(fake_data)
@@ -62,7 +69,7 @@ def visualize_pca_tsne(ori_data, fake_data, seq_len, filename, cond, train_test)
     axs[1,1].plot(fake_sample[randn_num[0], :, :].squeeze(), label='Synthetic', color='red')
     axs[1,1].set_title('Synthetic Data')
     
-    fig.suptitle(f'Assessing Diversity: Qualitative Comparison of Real ({train_test}) and Synthetic Data Distributions', 
+    fig.suptitle(f'Qualitative Comparison of Real ({train_test}) and Synthetic Data Distributions: {feature}', 
                  fontsize=14)
     fig.tight_layout()
     fig.subplots_adjust(top=.88)

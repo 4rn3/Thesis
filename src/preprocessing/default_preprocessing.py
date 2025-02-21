@@ -36,7 +36,7 @@ class MakeDATA(Dataset):
     def __getitem__(self, idx):
         return self.samples[idx]
 
-def data_preprocess(subset_len=25000):
+def data_preprocess_london(subset_len=25000):
     
     data_dir = f'./preprocessing/data/meter_data/LCL-June2015v2_0.csv'
     cond_data_dir = "./preprocessing/data/conditioning_data/weather_hourly_darksky.csv"
@@ -58,9 +58,34 @@ def data_preprocess(subset_len=25000):
     
     return data, cond_data
 
-def LoadData(seq_len, subset_len):
+def data_preprocess_house_zero(feature_subset = ["NET", "Cooling", "PV_meter1_load (kW)", "PV_meter2_load (kW)", "Battery cabinet", "Sumppump", "Plug_Basement", "Solar rapid shutdown"]):
+    data_dir_y1 = './preprocessing/data/meter_data/48190963_Loads_hourly.csv'
+    data_dir_y2 = './preprocessing/data/meter_data/48190948_Loads_hourly.csv'
+
+    cond_data_dir_y1 = "./preprocessing/data/conditioning_data/48190936_Weather.csv"
+    cond_data_dir_y2 = "./preprocessing/data/conditioning_data/48190930_Weather.csv"
+
+    data_y1 = pd.read_csv(data_dir_y1)
+    data_y2 = pd.read_csv(data_dir_y2)
+
+    cond_data_y1 = pd.read_csv(cond_data_dir_y1, encoding='unicode_escape')
+    cond_data_y2 = pd.read_csv(cond_data_dir_y2, encoding='unicode_escape')
+
+    meter_data = pd.concat([data_y1.reset_index(drop=True), data_y2.reset_index(drop=True)], axis=0)
+    cond_data = pd.concat([cond_data_y1.reset_index(drop=True), cond_data_y2.reset_index(drop=True)], axis=0)
+    
+    meter_data = meter_data[feature_subset]
+    cond_data = cond_data.iloc[:, 1:]
+    
+    return meter_data, cond_data
+
+def LoadData(seq_len, subset_len, dataset="HouseZero"):
+    if dataset == "HouseZero":
+        data, cond_data = data_preprocess_house_zero()
+    if dataset == "LondonDataStore":
+        data, cond_data = data_preprocess_london(subset_len) 
+    
     tts_split = 0.8
-    data, cond_data = data_preprocess(subset_len) 
     data = MakeDATA(data, seq_len)
     cond_data = MakeDATA(cond_data, seq_len)
     
@@ -74,7 +99,7 @@ def LoadData(seq_len, subset_len):
     
     return train_data, test_data, cond_data_train, cond_data_test
 
-def serve_data(seq_len, batch_size, subset_len):
+def serve_data(seq_len, batch_size, subset_len=25000):
     train_data, test_data, cond_data_train, cond_data_test = LoadData(seq_len=seq_len, subset_len=subset_len)
     train_data, test_data, cond_data_train, cond_data_test= np.asarray(train_data), np.asarray(test_data), np.asarray(cond_data_train), np.asarray(cond_data_test)
     
