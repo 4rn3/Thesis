@@ -29,7 +29,6 @@ class TransEncoder(nn.Module):
         self.pos_enc = PositionalEncoding(self.latent_dim)
         self.emb_timestep = TimestepEmbedder(self.latent_dim, self.pos_enc)
         self.input_dim = nn.Linear(self.channels, self.latent_dim)
-        #print(f"num of channels in transformer: {self.channels}")
         self.output_dim = nn.Linear(self.latent_dim, self.channels)
         self.TransEncLayer = nn.TransformerEncoderLayer(d_model=self.latent_dim,
                                                   nhead=self.num_heads,
@@ -44,11 +43,11 @@ class TransEncoder(nn.Module):
         self.cond_model = cond_model
         assert self.cond_model in {"mlp", "te", "stft", "fft"}, "Chosen conditioning model was not valid, the options are mlp, te, fft and spectro"
         if cond_model == "mlp":
-            self.conditional_embedding = MLPConditionalEmbedding(self.input_size, self.hidden_size)
+            self.conditional_embedding = MLPConditionalEmbedding(self.seq_len, self.latent_dim)
         if cond_model == "te":
             self.conditional_embedding = TEConditionalEmbedding(self.cond_features)
         if cond_model == "stft":
-            self.conditional_embedding = STFTEmbedding(seq_len=self.input_size, device=self.device)
+            self.conditional_embedding = STFTEmbedding(seq_len=self.channels, device=self.device)
         if cond_model == "fft":
             self.conditional_embedding = FFTEmbedding(in_features= self.cond_features, hidden_size=self.latent_dim)
            
@@ -61,14 +60,14 @@ class TransEncoder(nn.Module):
         x = self.input_dim(x)
         #print(f"Input dim shape after linear: {x.shape}")
         x = torch.transpose(x, 0, 1)
-        #,print(f"Input dim shape after transpose: {x.shape}")
+        #print(f"Input dim shape after transpose: {x.shape}")
         embed = self.emb_timestep(t)
         #print(f"Time embedding shape: {embed.shape}")
-        time_added_data = torch.cat((embed, x), axis = 0)
+        time_added_data = embed + x
         #print(f"Time added data shape: {time_added_data.shape}")
         time_added_data = self.pos_enc(time_added_data)
         #print(f"Time added data shape after pos enc: {time_added_data.shape}")
-        trans_output = self.TransEncodeR(time_added_data)[1:]
+        trans_output = self.TransEncodeR(time_added_data)
         #print(f"Transformer Encoded output shape: {trans_output.shape}")
         
         if cond_input is not None:
@@ -88,8 +87,9 @@ class TransEncoder(nn.Module):
                 
             #print(f"Cond embed shape: {cond_emb.shape}")
             
-            combined = torch.cat([trans_output, cond_emb], dim=0)
-            trans_output = combined[:15]
+            cond_pooled = cond_emb.mean(dim=0, keepdim=True)
+            cond_expanded = cond_pooled.expand(trans_output.shape[0], -1, -1)
+            trans_output = trans_output + cond_expanded
             #print(f"Combined transformer output shape: {trans_output.shape}")
         
         final_output = self.output_dim(trans_output)

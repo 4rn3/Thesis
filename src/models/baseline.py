@@ -83,12 +83,9 @@ class BaseLineModel(nn.Module):
         #print(f"time embed shape: {time_embed.shape}")
         pos_emb = self.positional_embedding(time_embed)
         pos_emb = pos_emb.permute(1, 0, 2)
-        time_embed = time_embed.permute(1, 0, 2)
         #print(f"pos embed shape: {pos_emb.shape}")
-        combined = torch.cat((time_embed, pos_emb), dim=1)
-        #print(f"combined shape: {combined.shape}")
         
-        combined = torch.cat((combined, lstm_out), dim=1)
+        combined = lstm_out + pos_emb
         #print(f"combined with lstm shape: {combined.shape}")
         
         attn_out = self.multihead_attention(combined)
@@ -98,24 +95,22 @@ class BaseLineModel(nn.Module):
         
         if cond_input is not None:
             cond_emb = self.conditional_embedding(cond_input)
-            #print(f"shape of stft embedding: {cond_emb.shape}")
             
             if self.cond_model == "te" or self.cond_model == "fft":
                 cond_emb = cond_emb.permute(0,2,1)
+            
             #print(f"cond_emb shape: {cond_emb.shape}")
             
             if self.cond_model == "stft":
                 cond_emb = cond_emb.reshape(x.shape[0], self.input_size, -1) #x.shape[1] is batch size
-                #print(f"shape of stft embedding after reshape: {cond_emb.shape}")
                 cond_emb = self.fc1(cond_emb)
-                #cond_emb = cond_emb.permute(1, 0, 2)
-                #print(f"shape of stft embedding after fc1: {cond_emb.shape}")
             
-            mlp_out = torch.cat((mlp_out, cond_emb), dim=1)
-            #print(f"mlp_out shape: {mlp_out.shape}")
-            #mlp_out = mlp_out.mean(dim=1, keepdim=True)
-        mlp_out = mlp_out[:, :self.channels, :]
-        #print(f"mlp output shape: {mlp_out.shape}")
+            #currently using global pooling maybe attn based combination or Feature-wise Linear Modulation (FiLM) would be good aswell?
+            cond_pooled = cond_emb.mean(dim=1, keepdim=True)
+            cond_expanded = cond_pooled.expand(-1, mlp_out.shape[1], -1) 
+            
+            mlp_out = mlp_out + cond_expanded
+            #print(f"mlp_out + embed shape: {mlp_out.shape}")
         
         final_out = self.linear(mlp_out)
         #print(f"final output shape: {final_out.shape}")
