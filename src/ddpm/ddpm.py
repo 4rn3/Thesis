@@ -82,6 +82,7 @@ class GaussianDiffusion1D(nn.Module):
     ):
         super().__init__()
         self.model = model
+        self.model_name = self.model.model_name
         self.channels = self.model.channels
         self.self_condition = self.model.context_size
         self.seq_length = seq_length
@@ -330,7 +331,11 @@ class GaussianDiffusion1D(nn.Module):
 
         # predict and take gradient step
 
-        model_out = self.model(x, t, cond_data)
+        if self.model_name == "BaseLine":
+            sqrt_cumprod_alpha = extract(self.sqrt_alphas_cumprod, t, x.shape).squeeze().long()
+            model_out = self.model(x, sqrt_cumprod_alpha, cond_data)
+        else:
+            model_out = self.model(x, t, cond_data)
 
         if self.objective == 'pred_noise':
             target = noise
@@ -355,6 +360,6 @@ class GaussianDiffusion1D(nn.Module):
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
 
         img = normalize_to_neg_one_to_one(img)
-        
+                    
         # print(f'shape after normalizing: {img.shape}')
         return self.p_losses(img, cond_data, t, *args, **kwargs)

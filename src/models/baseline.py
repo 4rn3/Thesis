@@ -45,6 +45,7 @@ class MLP(nn.Module):
 class BaseLineModel(nn.Module):
     def __init__(self, input_size, hidden_size, num_heads=8, channels=1, cond_model = "mlp", cond_features = None, device="cpu"):
         super(BaseLineModel, self).__init__()
+        self.model_name = "BaseLine"
         self.channels = channels
         self.context_size = None
         self.input_size = input_size
@@ -74,12 +75,12 @@ class BaseLineModel(nn.Module):
         
         self.fc1 = nn.Linear(16, self.hidden_size) #16 output after reshape
 
-    def forward(self, x, t, cond_input=None):
+    def forward(self, x, sqrt_cumprod_alpha, cond_input=None):
         #print(f"input shape: {x.shape}")
         lstm_out = self.lstm_embedding(x)
         #print(f"LSTM embed shape: {lstm_out.shape}")
         
-        time_embed = self.emb_timestep(t)
+        time_embed = self.emb_timestep(sqrt_cumprod_alpha)
         #print(f"time embed shape: {time_embed.shape}")
         pos_emb = self.positional_embedding(time_embed)
         pos_emb = pos_emb.permute(1, 0, 2)
