@@ -6,6 +6,7 @@ from embeddings.timestep import TimestepEmbedder
 from embeddings.mlp import MLPConditionalEmbedding
 from embeddings.transformer import TEConditionalEmbedding
 from embeddings.stft import STFTEmbedding
+from embeddings.fft import FFTEmbedding
 
 class LSTMEmbedding(nn.Module):
     def __init__(self, input_size, hidden_size):
@@ -61,13 +62,15 @@ class BaseLineModel(nn.Module):
         
         self.cond_features = cond_features
         self.cond_model = cond_model
-        assert self.cond_model in {"mlp", "te", "stft"}, "Chosen conditioning model was not valid, the options are mlp, te and stft"
+        assert self.cond_model in {"mlp", "te", "fft", "stft"}, "Chosen conditioning model was not valid, the options are mlp, te, fft and stft"
         if cond_model == "mlp":
             self.conditional_embedding = MLPConditionalEmbedding(self.input_size, self.hidden_size)
         if cond_model == "te":
             self.conditional_embedding = TEConditionalEmbedding(self.cond_features)
         if cond_model == "stft":
             self.conditional_embedding = STFTEmbedding(seq_len=self.input_size, device=self.device)
+        if cond_model == "fft":
+            self.conditional_embedding = FFTEmbedding(in_features=self.cond_features, hidden_size=self.hidden_size)
         
         self.fc1 = nn.Linear(16, self.hidden_size) #16 output after reshape
 
@@ -97,7 +100,7 @@ class BaseLineModel(nn.Module):
             cond_emb = self.conditional_embedding(cond_input)
             #print(f"shape of stft embedding: {cond_emb.shape}")
             
-            if self.cond_model == "te":
+            if self.cond_model == "te" or self.cond_model == "fft":
                 cond_emb = cond_emb.permute(0,2,1)
             #print(f"cond_emb shape: {cond_emb.shape}")
             

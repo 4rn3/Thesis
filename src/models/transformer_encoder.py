@@ -6,6 +6,7 @@ from embeddings.timestep import TimestepEmbedder
 from embeddings.mlp import MLPConditionalEmbedding
 from embeddings.transformer import TEConditionalEmbedding
 from embeddings.stft import STFTEmbedding
+from embeddings.fft import FFTEmbedding
 
 class TransEncoder(nn.Module):
     
@@ -41,14 +42,16 @@ class TransEncoder(nn.Module):
         
         self.cond_features = cond_features
         self.cond_model = cond_model
-        assert self.cond_model in {"mlp", "te", "stft"}, "Chosen conditioning model was not valid, the options are mlp, te and stft"
+        assert self.cond_model in {"mlp", "te", "stft", "fft"}, "Chosen conditioning model was not valid, the options are mlp, te, fft and spectro"
         if cond_model == "mlp":
-            self.conditional_embedding = MLPConditionalEmbedding(self.seq_len, self.latent_dim)
+            self.conditional_embedding = MLPConditionalEmbedding(self.input_size, self.hidden_size)
         if cond_model == "te":
             self.conditional_embedding = TEConditionalEmbedding(self.cond_features)
         if cond_model == "stft":
-            self.conditional_embedding = STFTEmbedding(seq_len=self.seq_len, device=self.device)
-            
+            self.conditional_embedding = STFTEmbedding(seq_len=self.input_size, device=self.device)
+        if cond_model == "fft":
+            self.conditional_embedding = FFTEmbedding(in_features= self.cond_features, hidden_size=self.latent_dim)
+           
         self.fc1 = nn.Linear(16, self.latent_dim) #16 is output of stft after reshape
         
     def forward(self, x, t, cond_input = None):
@@ -75,7 +78,7 @@ class TransEncoder(nn.Module):
             if self.cond_model == "mlp":
                 cond_emb = cond_emb.permute(1,0,2)
             
-            if self.cond_model == "te":
+            if self.cond_model == "te" or self.cond_model == "fft":
                 cond_emb = cond_emb.permute(2,0,1)
             
             if self.cond_model == "stft":
