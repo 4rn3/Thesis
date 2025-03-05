@@ -1,5 +1,9 @@
+import os
 import pandas as pd
 import numpy as np
+
+from datetime import datetime
+import math
 
 import torch
 from torch.utils.data import Dataset, DataLoader, TensorDataset, random_split
@@ -15,6 +19,23 @@ def normalize(data):
     data = data.astype(np.float32)
     
     return data
+
+def calc_cutoff(cutoff):
+    start = datetime(2011, 5, 1) #start date measurements
+    end = datetime(2013, 10, 1) #end date measurements
+
+    delta = end - start
+    delta_days = delta.days
+
+    delta_hh = delta_days * 48
+    return math.floor(delta_hh* cutoff)
+
+def impute_ts(og_df):
+    df = og_df.copy()
+    for col in df.columns:
+        df[col] = df[col].interpolate(method="time")
+    
+    return df
 
 class MakeDATA(Dataset):
     def __init__(self, data, seq_len):
@@ -36,71 +57,65 @@ class MakeDATA(Dataset):
     def __getitem__(self, idx):
         return self.samples[idx]
 
-def data_preprocess_london(subset_len=25000):
+def load_weather_data(data_dir, indices):
     
-    data_dir = f'./preprocessing/data/meter_data/LCL-June2015v2_0.csv'
-    cond_data_dir = "./preprocessing/data/conditioning_data/weather_hourly_darksky.csv"
-    
-    data = pd.read_csv(data_dir)
-    data.replace('Null', 0, inplace=True)
-    
-    cond_data = pd.read_csv(cond_data_dir)
-    cond_data = cond_data[["time", "humidity", "temperature", "windSpeed"]]
-    cond_data['time'] = pd.to_datetime(cond_data['time'])
-    cond_data.set_index('time', inplace=True)
-    cond_data = cond_data.resample('30min').interpolate(method='linear')
-    
-    if subset_len != "None":
-       data = data.iloc[:subset_len, 3]
-       cond_data = cond_data.iloc[:subset_len, :]
-    else:    
-        data = data.iloc[:len(cond_data), 3] #for this test dataset cond data is less than actual data
-    
-    return data, cond_data
+    weather_data = pd.read_csv(os.path.join(data_dir, "london_weather.csv"))
+    weather_data['date'] = pd.to_datetime(weather_data['date'], format='%Y%m%d')
+    weather_data.set_index('date', inplace=True)
 
-def data_preprocess_house_zero(feature_subset = ["NET", "Cooling", "PV_meter1_load (kW)", "PV_meter2_load (kW)", "Battery cabinet", "Sumppump", "Plug_Basement", "Solar rapid shutdown"]):
-    data_dir_y1 = './preprocessing/data/meter_data/48190963_Loads_hourly.csv'
-    data_dir_y2 = './preprocessing/data/meter_data/48190948_Loads_hourly.csv'
+    weather_data_resampled = weather_data.resample('30min').interpolate(method='linear')
+    weather_data_resampled = weather_data_resampled[weather_data_resampled.index.isin(indices)]
+    return weather_data_resampled  
 
-    cond_data_dir_y1 = "./preprocessing/data/conditioning_data/48190936_Weather.csv"
-    cond_data_dir_y2 = "./preprocessing/data/conditioning_data/48190930_Weather.csv"
-
-    data_y1 = pd.read_csv(data_dir_y1)
-    data_y2 = pd.read_csv(data_dir_y2)
-
-    cond_data_y1 = pd.read_csv(cond_data_dir_y1, encoding='unicode_escape')
-    cond_data_y2 = pd.read_csv(cond_data_dir_y2, encoding='unicode_escape')
-
-    meter_data = pd.concat([data_y1.reset_index(drop=True), data_y2.reset_index(drop=True)], axis=0)
-    cond_data = pd.concat([cond_data_y1.reset_index(drop=True), cond_data_y2.reset_index(drop=True)], axis=0)
+def data_preprocessing_revolution(percent_cutoff, num_customers):
+    data_dir = "./preprocessing/data/customer_led_network_revolution/"
+    cut_off = calc_cutoff(percent_cutoff)
     
-    meter_data = meter_data[feature_subset]
-    cond_data = cond_data.iloc[:, 1:]
+    domestic_smart_meter_data = pd.read_csv(os.path.join(data_dir, "TC1a/TrialMonitoringDataHH.csv"), index_col=1, usecols=["Location ID", "Date and Time of capture", "Parameter"])
     
-    return meter_data, cond_data
+    vc = domestic_smart_meter_data["Location ID"].value_counts()
+    vc = vc[vc >= cut_off]
+    customer_ids = vc.sample(num_customers).keys().tolist()
+    
+    filtered_smart_meter_data = domestic_smart_meter_data[domestic_smart_meter_data["Location ID"].isin(customer_ids)]
+    
+    del domestic_smart_meter_data
+    
+    filtered_smart_meter_data.index = pd.to_datetime(filtered_smart_meter_data.index, format='%d/%m/%Y %H:%M:%S')
+    multi_var_data = filtered_smart_meter_data.pivot_table(index=filtered_smart_meter_data.index, columns='Location ID', values='Parameter')
+    
+    weather_data = load_weather_data(data_dir, multi_var_data.index.tolist())
 
-def LoadData(seq_len, subset_len, dataset="HouseZero"):
-    if dataset == "HouseZero":
-        data, cond_data = data_preprocess_house_zero()
-    if dataset == "LondonDataStore":
-        data, cond_data = data_preprocess_london(subset_len) 
+    return multi_var_data, weather_data, customer_ids
+
+def LoadData(seq_len, percent_cutoff=0.95, num_customers=3):
+    data, cond_data, customer_ids = data_preprocessing_revolution(percent_cutoff=percent_cutoff, num_customers=num_customers)
     
     tts_split = 0.8
-    data = MakeDATA(data, seq_len)
-    cond_data = MakeDATA(cond_data, seq_len)
-    
     train_size = int(len(data) * tts_split)
-    test_size = len(data) - train_size
-    train_data, test_data = random_split(data, [train_size, test_size])
     
-    train_size = int(len(cond_data) * tts_split)
-    test_size = len(cond_data) - train_size
-    cond_data_train, cond_data_test = random_split(cond_data, [train_size, test_size])
+    train_data = data[:train_size]
+    test_data = data[train_size:]
     
-    return train_data, test_data, cond_data_train, cond_data_test
+    cond_train_data = cond_data[:train_size]
+    cond_test_data = cond_data[train_size:]
+    
+    imputed_cond_train_data = impute_ts(cond_train_data)
+    imputed_cond_test_data = impute_ts(cond_test_data)
 
-def serve_data(seq_len, batch_size, subset_len=25000):
-    train_data, test_data, cond_data_train, cond_data_test = LoadData(seq_len=seq_len, subset_len=subset_len)
+    imputed_train_data = impute_ts(train_data)
+    imputed_test_data = impute_ts(test_data)
+    
+    train_data = MakeDATA(imputed_train_data, seq_len)
+    train_cond_data = MakeDATA(imputed_cond_train_data, seq_len)
+    
+    test_data = MakeDATA(imputed_test_data, seq_len)
+    test_cond_data = MakeDATA(imputed_cond_test_data, seq_len)
+    
+    return train_data, test_data, train_cond_data, test_cond_data, customer_ids
+
+def serve_data(seq_len, batch_size):
+    train_data, test_data, cond_data_train, cond_data_test, customer_ids = LoadData(seq_len=seq_len)
     train_data, test_data, cond_data_train, cond_data_test= np.asarray(train_data), np.asarray(test_data), np.asarray(cond_data_train), np.asarray(cond_data_test)
     
     if len(train_data.shape) < 3:
@@ -125,4 +140,4 @@ def serve_data(seq_len, batch_size, subset_len=25000):
     real_data, real_cond_data = next(iter(train_loader))
     print(f"batched data shape: {real_data.shape}")
     
-    return train_loader, test_loader, features, cond_features
+    return train_loader, test_loader, features, cond_features, customer_ids
