@@ -148,7 +148,7 @@ def serve_data(seq_len=15, batch_size=32, percent_cutoff=0.95, num_customers=409
     return train_loader, test_loader, features, cond_features, customer_ids
 
 def serve_data_img(img_shape=(64,64,1), batch_size=10, seq_len=12, percent_cutoff=0.95, num_customers=4096):
-        data_dir = "./data/customer_led_network_revolution/"
+        data_dir = "./preprocessing/data/customer_led_network_revolution/"
         
         cut_off = calc_cutoff(percent_cutoff)
         
