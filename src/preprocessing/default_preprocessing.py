@@ -20,15 +20,15 @@ def normalize(data):
     
     return data
 
-def calc_cutoff(cutoff):
-    start = datetime(2011, 5, 1) #start date measurements
-    end = datetime(2013, 10, 1) #end date measurements
+def calc_cutoff(cutoff, start_date = datetime(2011, 5, 1), end_date = datetime(2013, 10, 1), frequency=2):
 
-    delta = end - start
+    delta = end_date - start_date
     delta_days = delta.days
 
-    delta_hh = delta_days * 48
-    return math.floor(delta_hh* cutoff)
+    delta_hourly = delta_days * 24
+    delta_df_frequency = delta_hourly * frequency
+    
+    return math.floor(delta_df_frequency * cutoff)
 
 def impute_ts(og_df):
     df = og_df.copy()
@@ -88,17 +88,21 @@ def data_preprocessing_revolution(percent_cutoff, num_customers):
 
     return multi_var_data, weather_data, customer_ids
 
-def LoadData(seq_len, percent_cutoff=0.95, num_customers=3):
-    data, cond_data, customer_ids = data_preprocessing_revolution(percent_cutoff=percent_cutoff, num_customers=num_customers)
-    
+def split_tts(data):
     tts_split = 0.8
     train_size = int(len(data) * tts_split)
     
     train_data = data[:train_size]
     test_data = data[train_size:]
     
-    cond_train_data = cond_data[:train_size]
-    cond_test_data = cond_data[train_size:]
+    return train_data, test_data
+    
+
+def LoadData(seq_len, percent_cutoff, num_customers):
+    data, cond_data, customer_ids = data_preprocessing_revolution(percent_cutoff=percent_cutoff, num_customers=num_customers)
+    
+    train_data, test_data = split_tts(data)
+    cond_train_data, cond_test_data = split_tts(cond_data)
     
     imputed_cond_train_data = impute_ts(cond_train_data)
     imputed_cond_test_data = impute_ts(cond_test_data)
@@ -114,8 +118,9 @@ def LoadData(seq_len, percent_cutoff=0.95, num_customers=3):
     
     return train_data, test_data, train_cond_data, test_cond_data, customer_ids
 
-def serve_data(seq_len, batch_size):
-    train_data, test_data, cond_data_train, cond_data_test, customer_ids = LoadData(seq_len=seq_len)
+def serve_data(seq_len=15, batch_size=32, percent_cutoff=0.95, num_customers=4096, img=False):
+    
+    train_data, test_data, cond_data_train, cond_data_test, customer_ids = LoadData(seq_len=seq_len, percent_cutoff=percent_cutoff, num_customers=num_customers)
     train_data, test_data, cond_data_train, cond_data_test= np.asarray(train_data), np.asarray(test_data), np.asarray(cond_data_train), np.asarray(cond_data_test)
     
     if len(train_data.shape) < 3:
@@ -130,7 +135,7 @@ def serve_data(seq_len, batch_size):
     train_data, test_data, cond_data_train, cond_data_test = train_data.transpose(0,2,1), test_data.transpose(0,2,1), cond_data_train.transpose(0,2,1), cond_data_test.transpose(0,2,1)
     print(f"Train shape (batch, features, seq_len): {train_data.shape}")
     print(f"Cond shape (batch, features, seq_len): {cond_data_train.shape}")
-    
+        
     train_dataset = TensorDataset(torch.from_numpy(train_data), torch.from_numpy(cond_data_train))
     train_loader = DataLoader(train_dataset, batch_size)
 
@@ -141,3 +146,52 @@ def serve_data(seq_len, batch_size):
     print(f"batched data shape: {real_data.shape}")
     
     return train_loader, test_loader, features, cond_features, customer_ids
+
+def serve_data_img(img_shape=(64,64,1), batch_size=10, seq_len=12, percent_cutoff=0.95, num_customers=4096):
+        data_dir = "./data/customer_led_network_revolution/"
+        
+        cut_off = calc_cutoff(percent_cutoff)
+        
+        domestic_smart_meter_data = pd.read_csv(os.path.join(data_dir, "TC1a/TrialMonitoringDataHH.csv"), index_col=1, usecols=["Location ID", "Date and Time of capture", "Parameter"])
+        
+        vc = domestic_smart_meter_data["Location ID"].value_counts()
+        vc = vc[vc >= cut_off]
+        customer_ids = vc.sample(num_customers).keys().tolist()
+        
+        filtered_smart_meter_data = domestic_smart_meter_data[domestic_smart_meter_data["Location ID"].isin(customer_ids)]
+        del domestic_smart_meter_data
+        
+        filtered_smart_meter_data.index = pd.to_datetime(filtered_smart_meter_data.index, format='%d/%m/%Y %H:%M:%S')
+        multi_var_data = filtered_smart_meter_data.pivot_table(index=filtered_smart_meter_data.index, columns='Location ID', values='Parameter')
+    
+        weather_data = load_weather_data(data_dir, multi_var_data.index.tolist())
+        
+        train_data, test_data = split_tts(multi_var_data)
+
+        imputed_train_data = impute_ts(train_data)
+        imputed_test_data = impute_ts(test_data)
+                
+        train_data, test_data = np.asarray(imputed_train_data), np.asarray(imputed_test_data)
+        train_data_img, test_data_img = train_data.reshape(-1, img_shape[0], img_shape[1], img_shape[2]), test_data.reshape(-1, img_shape[0], img_shape[1], img_shape[2])
+
+        train_data_img, test_data_img = np.transpose(train_data_img, (0, 3, 2, 1)), np.transpose(test_data_img, (0, 3, 2, 1))
+        
+        cond_train_data, cond_test_data = split_tts(weather_data)
+        
+        imputed_cond_train_data = impute_ts(cond_train_data)
+        imputed_cond_test_data = impute_ts(cond_test_data)
+
+        
+        train_dataset = TensorDataset(torch.from_numpy(train_data), torch.from_numpy(imputed_cond_train_data))
+        train_loader = DataLoader(train_dataset, batch_size)
+
+        test_dataset = TensorDataset(torch.from_numpy(test_data), torch.from_numpy(imputed_cond_test_data))
+        test_loader = DataLoader(test_dataset, batch_size)
+        
+        cond_features = imputed_cond_train_data.shape[1]
+                
+        return train_loader, test_loader, cond_features, customer_ids
+            
+        
+
+        
