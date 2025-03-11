@@ -79,7 +79,7 @@ def write_meter_data(num_customers=4096, img=False):
     
     customer_ids = vc.sample(num_customers).keys().tolist()
     print("writing customer ids to disk")
-    np.save(os.path.join(DATA_DIR, "preprocessed/customer_ids.npy"), customer_ids)
+    np.save(os.path.join(DATA_DIR, "preprocessed/customer_ids_img.npy"), customer_ids)
     
     filtered_meter_data = meter_data[meter_data["Location ID"].isin(customer_ids)]
     del meter_data
