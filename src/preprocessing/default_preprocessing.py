@@ -8,6 +8,8 @@ import math
 import torch
 from torch.utils.data import Dataset, DataLoader, TensorDataset, random_split
 
+DATA_DIR = "./preprocessing/data/customer_led_network_revolution/"
+
 def normalize(data):
     
     min_val = np.min(np.min(data, axis=0), axis=0)
@@ -118,7 +120,7 @@ def LoadData(seq_len, percent_cutoff, num_customers):
     
     return train_data, test_data, train_cond_data, test_cond_data, customer_ids
 
-def serve_data(seq_len=15, batch_size=32, percent_cutoff=0.95, num_customers=4096, img=False):
+def write_to_disk(seq_len, batch_size, percent_cutoff, num_customers):
     
     train_data, test_data, cond_data_train, cond_data_test, customer_ids = LoadData(seq_len=seq_len, percent_cutoff=percent_cutoff, num_customers=num_customers)
     train_data, test_data, cond_data_train, cond_data_test= np.asarray(train_data), np.asarray(test_data), np.asarray(cond_data_train), np.asarray(cond_data_test)
@@ -145,53 +147,43 @@ def serve_data(seq_len=15, batch_size=32, percent_cutoff=0.95, num_customers=409
     real_data, real_cond_data = next(iter(train_loader))
     print(f"batched data shape: {real_data.shape}")
     
+    print("writing customer ids to disk")
+    np.save(os.path.join(DATA_DIR, "preprocessed/customer_ids.npy"), np.asarray(customer_ids))
+    print("writing preprocessed meter data to disk")
+    np.save(os.path.join(DATA_DIR, "preprocessed/train_data.npy"), np.asarray(train_data))
+    np.save(os.path.join(DATA_DIR, "preprocessed/test_data.npy"), np.asarray(test_data))
+    print("writing preprocessed condition data to disk")
+    np.save(os.path.join(DATA_DIR, "preprocessed/cond_train_data_seq.npy"), np.asarray(cond_data_train))
+    np.save(os.path.join(DATA_DIR, "preprocessed/cond_test_data_seq.npy"), np.asarray(cond_data_test))
+    
     return train_loader, test_loader, features, cond_features, customer_ids
 
-def serve_data_img(img_shape=(64,64,1), batch_size=10, seq_len=12, percent_cutoff=0.95, num_customers=4096):
-        data_dir = "./preprocessing/data/customer_led_network_revolution/"
-        
-        cut_off = calc_cutoff(percent_cutoff)
-        
-        domestic_smart_meter_data = pd.read_csv(os.path.join(data_dir, "TC1a/TrialMonitoringDataHH.csv"), index_col=1, usecols=["Location ID", "Date and Time of capture", "Parameter"])
-        
-        vc = domestic_smart_meter_data["Location ID"].value_counts()
-        vc = vc[vc >= cut_off]
-        customer_ids = vc.sample(num_customers).keys().tolist()
-        
-        filtered_smart_meter_data = domestic_smart_meter_data[domestic_smart_meter_data["Location ID"].isin(customer_ids)]
-        del domestic_smart_meter_data
-        
-        filtered_smart_meter_data.index = pd.to_datetime(filtered_smart_meter_data.index, format='%d/%m/%Y %H:%M:%S')
-        multi_var_data = filtered_smart_meter_data.pivot_table(index=filtered_smart_meter_data.index, columns='Location ID', values='Parameter')
+def serve_data(seq_len=15, batch_size=32, percent_cutoff=0.95, num_customers=4096, overwrite=False):
     
-        weather_data = load_weather_data(data_dir, multi_var_data.index.tolist())
+    if not os.path.isfile(os.path.join(DATA_DIR, "preprocessed/train_data.npy")) or overwrite:
+        print("writing data to disk")
+        write_to_disk(seq_len=seq_len, batch_size=batch_size, percent_cutoff=percent_cutoff, num_customers=num_customers)
         
-        train_data, test_data = split_tts(multi_var_data)
-
-        imputed_train_data = impute_ts(train_data)
-        imputed_test_data = impute_ts(test_data)
-                
-        train_data, test_data = np.asarray(imputed_train_data), np.asarray(imputed_test_data)
-        train_data_img, test_data_img = train_data.reshape(-1, img_shape[0], img_shape[1], img_shape[2]), test_data.reshape(-1, img_shape[0], img_shape[1], img_shape[2])
-
-        train_data_img, test_data_img = np.transpose(train_data_img, (0, 3, 2, 1)), np.transpose(test_data_img, (0, 3, 2, 1))
-        
-        cond_train_data, cond_test_data = split_tts(weather_data)
-        
-        imputed_cond_train_data = impute_ts(cond_train_data)
-        imputed_cond_test_data = impute_ts(cond_test_data)
-
-        
-        train_dataset = TensorDataset(torch.from_numpy(train_data), torch.from_numpy(imputed_cond_train_data))
-        train_loader = DataLoader(train_dataset, batch_size)
-
-        test_dataset = TensorDataset(torch.from_numpy(test_data), torch.from_numpy(imputed_cond_test_data))
-        test_loader = DataLoader(test_dataset, batch_size)
-        
-        cond_features = imputed_cond_train_data.shape[1]
-                
-        return train_loader, test_loader, cond_features, customer_ids
-            
-        
-
-        
+    print("loading meter data")
+    train_data= np.load(os.path.join(DATA_DIR, "preprocessed/train_data.npy"))
+    test_data = np.load(os.path.join(DATA_DIR, "preprocessed/test_data.npy"))
+    print(f"train_data shape: {train_data.shape}")
+    print(f"test_data shape: {test_data.shape}")
+    print("loading condition data")
+    train_cond_data = np.load(os.path.join(DATA_DIR, "preprocessed/cond_train_data_seq.npy"))
+    test_cond_data = np.load(os.path.join(DATA_DIR, "preprocessed/cond_test_data_seq.npy"))
+    print(f"cond_train_data shape: {train_cond_data.shape}")
+    print(f"cond_test_data shape: {test_cond_data.shape}")
+    train_dataset = TensorDataset(torch.from_numpy(train_data), torch.from_numpy(train_cond_data))
+    train_loader = DataLoader(train_dataset, batch_size)
+    
+    test_dataset = TensorDataset(torch.from_numpy(test_data), torch.from_numpy(test_cond_data))
+    test_loader = DataLoader(test_dataset, batch_size)
+    
+    features = train_data.shape[2]
+    n_cfeat = train_cond_data.shape[2]
+    print("loading customer ids")
+    customer_ids = np.load(os.path.join(DATA_DIR,"preprocessed/customer_ids.npy")).tolist()
+    
+    return train_loader, test_loader, features, n_cfeat, customer_ids, train_data, test_data
+    
