@@ -48,5 +48,5 @@ def serve_data(batch_size = 10, num_customers = 4096, overwrite=False):
     # print(f"NaN in train cond: {np.isnan(train_cond_data).sum()}")
 
     
-    return train_loader, test_loader, n_cfeat, customer_ids
+    return train_loader, test_loader, n_cfeat, customer_ids, train_data, test_data
         
