@@ -179,11 +179,12 @@ def serve_data(seq_len=15, batch_size=32, percent_cutoff=0.95, num_customers=409
     
     test_dataset = TensorDataset(torch.from_numpy(test_data), torch.from_numpy(test_cond_data))
     test_loader = DataLoader(test_dataset, batch_size)
-    print(train_data.shape)
+    
     features = train_data.shape[1]
     n_cfeat = train_cond_data.shape[2]
     print("loading customer ids")
     customer_ids = np.load(os.path.join(DATA_DIR,"preprocessed/customer_ids.npy")).tolist()
+    print(f"Number of customers: {len(customer_ids)}")
     
     return train_loader, test_loader, features, n_cfeat, customer_ids, train_data, test_data
     

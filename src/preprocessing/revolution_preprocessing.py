@@ -8,12 +8,12 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from preprocessing.write_to_disk import write_meter_data, write_cond_data
 
-def serve_data(batch_size = 10, num_customers = 4096, overwrite=False):
+def serve_data(batch_size = 10, num_customers = 4096, overwrite=False, img=True):
     DATA_DIR = "./preprocessing/data/customer_led_network_revolution/preprocessed/"
             
     if not os.path.isfile(os.path.join(DATA_DIR, "img_train_data.npy")) or overwrite:
         print("writing data to disk")
-        indices = write_meter_data(num_customers=num_customers, img=True)
+        indices = write_meter_data(num_customers=num_customers, img=img)
         write_cond_data(indices)
         
         
@@ -35,8 +35,8 @@ def serve_data(batch_size = 10, num_customers = 4096, overwrite=False):
     
     n_cfeat = train_cond_data.shape[1]
     print("loading customer ids")
-    customer_ids = np.load(os.path.join(DATA_DIR,"customer_ids.npy")).tolist()
-    
+    customer_ids = np.load(os.path.join(DATA_DIR,"customer_ids_img.npy")).tolist()
+    print(f"Number of customers: {len(customer_ids)}")
     # # Add these to your serve_data function at the end
     # print(f"Train data stats - Min: {train_data.min()}, Max: {train_data.max()}, Mean: {train_data.mean()}")
     # print(f"Test data stats - Min: {test_data.min()}, Max: {test_data.max()}, Mean: {test_data.mean()}")
