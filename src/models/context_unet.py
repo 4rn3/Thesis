@@ -203,13 +203,13 @@ class ContextUnet(nn.Module):
             c = self.te_fc(c)
         
         # Embeddings
-        cemb1 = self.contextembed1(c).view(x.shape[0], self.n_feat * 4, 1, 1)
+        cemb1 = self.contextembed1(c).view(-1, self.n_feat * 4, 1, 1)
         #print(f"cemb1 shape: {cemb1.shape}")
-        temb1 = self.timeembed1(t).view(x.shape[0], self.n_feat * 4, 1, 1)
+        temb1 = self.timeembed1(t).view(-1, self.n_feat * 4, 1, 1)
         #print(f"temb1 shape: {temb1.shape}")
-        cemb2 = self.contextembed2(c).view(x.shape[0], self.n_feat * 2, 1, 1)
+        cemb2 = self.contextembed2(c).view(-1, self.n_feat * 2, 1, 1)
         #print(f"cemb2 shape: {cemb2.shape}")
-        temb2 = self.timeembed2(t).view(x.shape[0], self.n_feat * 2, 1, 1)
+        temb2 = self.timeembed2(t).view(-1, self.n_feat * 2, 1, 1)
         #print(f"temb2 shape: {temb2.shape}")
 
         # Upsampling

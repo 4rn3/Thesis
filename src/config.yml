@@ -1,22 +1,20 @@
 #DDPM
-timesteps: 1000
+timesteps: 500
 beta_schedule: "linear"
 objective: "pred_noise"
 betas: (1e-4, 0.02)
 
 #General NN
-epochs: 4
-batch_size: 64
+epochs: 2
+batch_size: 10
 model_name: "ContextUnet"
 cond_model: "mlp"
-lr: 1e-4
+lr: 1e-3
 save_rate: 2
 
 #Data
 seq_len: 15
-subset_len: None
-dataset: "HouseZero"
-house_zero_feature_subset: ["NET", "Cooling", "PV_meter1_load (kW)", "PV_meter2_load (kW)", "Battery cabinet", "Sumppump", "Plug_Basement", "Solar rapid shutdown"]
+num_customers: 4096
 
 #Transformer
 latent_dim: 256
@@ -24,7 +22,7 @@ num_layers: 6
 n_heads: 8
 
 #ContextUnet
-img_rows: 8
-img_cols: 8
+img_rows: 64
+img_cols: 64
 channels: 1
 n_feat: 64
