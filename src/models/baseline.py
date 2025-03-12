@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+import math
 
 from embeddings.positional import PositionalEncoding
 from embeddings.timestep import TimestepEmbedder
@@ -8,111 +10,132 @@ from embeddings.transformer import TEConditionalEmbedding
 from embeddings.stft import STFTEmbedding
 from embeddings.fft import FFTEmbedding
 
-class LSTMEmbedding(nn.Module):
-    def __init__(self, input_size, hidden_size):
-        super(LSTMEmbedding, self).__init__()
-        self.hidden_size = hidden_size
-        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
-
+class MultiHeadAttention(nn.Module):
+    def __init__(self, hidden_dim, num_heads=8, dropout=0.1):
+        super(MultiHeadAttention, self).__init__()
+        self.num_heads = num_heads
+        self.hidden_dim = hidden_dim
+        assert hidden_dim % num_heads == 0, "Hidden dimension must be divisible by number of heads"
+        
+        self.head_dim = hidden_dim // num_heads
+        self.qkv_proj = nn.Linear(hidden_dim, 3 * hidden_dim)
+        self.output_proj = nn.Linear(hidden_dim, hidden_dim)
+        self.dropout = nn.Dropout(dropout)
+        
     def forward(self, x):
-        h0 = torch.zeros(1, x.size(0), self.hidden_size).to(x.device)
-        c0 = torch.zeros(1, x.size(0), self.hidden_size).to(x.device)
-        out, _ = self.lstm(x, (h0, c0))
-        return out
-
-class MultiHeadSelfAttention(nn.Module):
-    def __init__(self, hidden_size, num_heads):
-        super(MultiHeadSelfAttention, self).__init__()
-        self.attention = nn.MultiheadAttention(hidden_size, num_heads, batch_first=True)
-
-    def forward(self, x):
-        attn_output, _ = self.attention(x, x, x)
-        return attn_output
+        batch_size, seq_len, _ = x.shape
+        
+        # Linear projection for query, key, value
+        qkv = self.qkv_proj(x)
+        qkv = qkv.reshape(batch_size, seq_len, 3, self.num_heads, self.head_dim)
+        qkv = qkv.permute(2, 0, 3, 1, 4)
+        
+        q, k, v = qkv[0], qkv[1], qkv[2]
+        
+        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+        attention_weights = F.softmax(scores, dim=-1)
+        attention_weights = self.dropout(attention_weights)
+        
+        attention_output = torch.matmul(attention_weights, v)
+        attention_output = attention_output.permute(0, 2, 1, 3).contiguous()
+        attention_output = attention_output.reshape(batch_size, seq_len, self.hidden_dim)
+        
+        return self.output_proj(attention_output)
     
 class MLP(nn.Module):
-    def __init__(self, input_size, hidden_size):
+    def __init__(self, hidden_dim, expansion_factor=4, dropout=0.1):
         super(MLP, self).__init__()
-        self.fc1 = nn.Linear(input_size, hidden_size)
-        self.leaky_relu = nn.LeakyReLU(negative_slope=0.01)
-        self.fc2 = nn.Linear(hidden_size, hidden_size)
-
+        self.fc1 = nn.Linear(hidden_dim, hidden_dim * expansion_factor)
+        self.fc2 = nn.Linear(hidden_dim * expansion_factor, hidden_dim)
+        self.dropout = nn.Dropout(dropout)
+        
     def forward(self, x):
         x = self.fc1(x)
-        x = self.leaky_relu(x)
+        x = F.leaky_relu(x, negative_slope=0.1)  # Leaky ReLU as specified
+        x = self.dropout(x)
         x = self.fc2(x)
         return x
 
 class BaseLineModel(nn.Module):
-    def __init__(self, input_size, hidden_size, num_heads=8, channels=1, cond_model = "mlp", cond_features = None, device="cpu"):
+    def __init__(self, seq_len, hidden_dim, cond_dim, num_heads=8, dropout=0.1, device= "cpu", cond_model="mlp", channels= 1):
         super(BaseLineModel, self).__init__()
-        self.model_name = "BaseLine"
-        self.channels = channels
-        self.context_size = None
-        self.input_size = input_size
-        self.hidden_size = hidden_size
+        self.hidden_dim = hidden_dim
+        self.seq_len = seq_len
+        
+        self.cond_model = cond_model
+        self.cond_dim = cond_dim
         self.device = device
         
-        self.lstm_embedding = LSTMEmbedding(self.input_size, self.hidden_size)
+        self.channels = channels
+        self.model_name = "BaseLine"
+        self.context_size = None
+    
+        self.lstm = nn.LSTM(
+            input_size=self.seq_len,
+            hidden_size=hidden_dim,
+            num_layers=1,
+            batch_first=True
+        )
         
-        self.positional_embedding = PositionalEncoding(self.hidden_size)
-        self.emb_timestep = TimestepEmbedder(self.hidden_size, self.positional_embedding)
+        self.pos_embedding = PositionalEncoding(hidden_dim)
+        self.emb_timestep = TimestepEmbedder(self.hidden_dim, self.pos_embedding)
         
-        self.multihead_attention = MultiHeadSelfAttention(self.hidden_size, num_heads)
-        self.mlp = MLP(self.hidden_size, self.hidden_size)
-        self.linear = nn.Linear(self.hidden_size, self.input_size)
+        self.self_attention = MultiHeadAttention(hidden_dim, num_heads, dropout)
+        self.norm1 = nn.LayerNorm(hidden_dim)
         
-        self.cond_features = cond_features
-        self.cond_model = cond_model
+        self.mlp = MLP(hidden_dim, dropout=dropout)
+        self.norm2 = nn.LayerNorm(hidden_dim)
+        
         assert self.cond_model in {"mlp", "te", "fft", "stft"}, "Chosen conditioning model was not valid, the options are mlp, te, fft and stft"
         if cond_model == "mlp":
-            self.conditional_embedding = MLPConditionalEmbedding(self.input_size, self.hidden_size)
+            self.cond_embedding = MLPConditionalEmbedding(self.seq_len, self.hidden_dim)
         if cond_model == "te":
-            self.conditional_embedding = TEConditionalEmbedding(self.cond_features)
+            self.cond_embedding = TEConditionalEmbedding(self.cond_dim)
         if cond_model == "stft":
-            self.conditional_embedding = STFTEmbedding(seq_len=self.input_size, device=self.device)
+            self.cond_embedding = STFTEmbedding(seq_len=self.seq_len, device=device)
         if cond_model == "fft":
-            self.conditional_embedding = FFTEmbedding(in_features=self.cond_features, hidden_size=self.hidden_size)
+            self.cond_embedding = FFTEmbedding(in_features=self.cond_dim, hidden_size=self.hidden_dim)
         
-        self.fc1 = nn.Linear(16, self.hidden_size) #16 output after reshape
+        self.output_layer = nn.Linear(hidden_dim, seq_len)
+        
+    def forward(self, noise_input, noise_level, conditional_info=None): 
+        lstm_output, _ = self.lstm(noise_input)
+        #print(f"lstm_output: {lstm_output.shape}")
+        time_embed = self.emb_timestep(noise_level)
+        #print(f"time_embed: {time_embed.shape}")
+        pos_embed = self.pos_embedding(time_embed).permute(1, 0, 2) 
+        #print(f"pos_embed: {pos_embed.shape}")
+        combined = lstm_output + pos_embed
+        #print(f"combined: {combined.shape}")
+        attention_output = self.norm1(self.self_attention(combined))
+        #print(f"attention_output: {attention_output.shape}")
 
-    def forward(self, x, sqrt_cumprod_alpha, cond_input=None):
-        #print(f"input shape: {x.shape}")
-        lstm_out = self.lstm_embedding(x)
-        #print(f"LSTM embed shape: {lstm_out.shape}")
-        
-        time_embed = self.emb_timestep(sqrt_cumprod_alpha)
-        #print(f"time embed shape: {time_embed.shape}")
-        pos_emb = self.positional_embedding(time_embed)
-        pos_emb = pos_emb.permute(1, 0, 2)
-        #print(f"pos embed shape: {pos_emb.shape}")
-        
-        combined = lstm_out + pos_emb
-        #print(f"combined with lstm shape: {combined.shape}")
-        
-        attn_out = self.multihead_attention(combined)
-        #print(f"attn_out shape: {attn_out.shape}")
-        mlp_out = self.mlp(attn_out)
-        #print(f"mlp_out shape: {mlp_out.shape}")
-        
-        if cond_input is not None:
-            cond_emb = self.conditional_embedding(cond_input)
+        mlp_output = self.norm2(self.mlp(attention_output))
+        #print(f"mlp_output: {mlp_output.shape}")
+        if conditional_info is not None:
+            cond_embedded = self.cond_embedding(conditional_info)  
+            #print(f"cond_embedded: {cond_embedded.shape}")
             
             if self.cond_model == "te" or self.cond_model == "fft":
-                cond_emb = cond_emb.permute(0,2,1)
-            
-            #print(f"cond_emb shape: {cond_emb.shape}")
+                cond_embedded = cond_embedded.permute(0,2,1)
             
             if self.cond_model == "stft":
-                cond_emb = cond_emb.reshape(x.shape[0], self.input_size, -1) #x.shape[1] is batch size
-                cond_emb = self.fc1(cond_emb)
-            
+                cond_embedded = cond_embedded.reshape(noise_input.shape[0], self.input_size, -1)
+                cond_embedded = self.fc1(cond_embedded)
+                
             #currently using global pooling maybe attn based combination or Feature-wise Linear Modulation (FiLM) would be good aswell?
-            cond_pooled = cond_emb.mean(dim=1, keepdim=True)
-            cond_expanded = cond_pooled.expand(-1, mlp_out.shape[1], -1) 
+            cond_pooled = cond_embedded.mean(dim=1, keepdim=True)
+            cond_expanded = cond_pooled.expand(-1, mlp_output.shape[1], -1)
+            #print(f"cond_expanded: {cond_expanded.shape}")
             
-            mlp_out = mlp_out + cond_expanded
-            #print(f"mlp_out + embed shape: {mlp_out.shape}")
+            combined_output = mlp_output + cond_expanded
+            #print(f"combined_output: {combined_output.shape}")
         
-        final_out = self.linear(mlp_out)
-        #print(f"final output shape: {final_out.shape}")
-        return final_out
+        else:
+            combined_output = mlp_output
+            #print(f"combined_output: {combined_output.shape}")
+        
+        final_output = self.output_layer(combined_output) 
+        #print(f"final_output: {final_output.shape}")
+        
+        return final_output
