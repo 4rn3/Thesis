@@ -168,7 +168,7 @@ class ContextUnet(nn.Module):
         # Only two up-sampling layers
         self.up0 = nn.Sequential(
             nn.ConvTranspose2d(4 * n_feat, 4 * n_feat, self.h//8, self.h//8),
-            nn.GroupNorm(8, 4 * n_feat),
+            nn.GroupNorm(4, 4 * n_feat),
             nn.ReLU(),
         )
         self.up1 = UnetUp(8 * n_feat, 2 * n_feat)
@@ -176,7 +176,7 @@ class ContextUnet(nn.Module):
 
         self.out = nn.Sequential(
             nn.Conv2d(2 * n_feat, n_feat, 3, 1, 1),
-            nn.GroupNorm(8, n_feat),
+            nn.GroupNorm(4, n_feat),
             nn.ReLU(),
             nn.Conv2d(n_feat, self.in_channels, 3, 1, 1),
         )

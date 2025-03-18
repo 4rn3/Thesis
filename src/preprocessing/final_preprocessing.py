@@ -194,3 +194,40 @@ def serve_data(types=["ev","hp","pv","re"], seq_len=336, batch_size=256, overwri
     test_loader = DataLoader(test_dataset, batch_size)
     
     return train_loader, test_loader, train_cols, test_cols, test, features, cond_features
+
+def serve_data_unet(types=["ev","hp","pv","re"], batch_size=10, overwrite=False, customers=9216):
+    if not os.path.isfile(os.path.join(PREPROCESSED_DIR, "meter_train_df.npy")) or overwrite:
+        print("write to file")
+        write_combined_to_disk(types)
+    
+    train_df, test_df = load_data()
+
+    train_df = train_df.iloc[:, :customers]
+    test_df = test_df.iloc[:, :customers]
+
+    train_cols = train_df.columns.tolist()
+    test_cols = test_df.columns.tolist()
+    
+    train_arr = np.asarray(train_df)
+    test_arr = np.asarray(test_df)
+    
+    img_train = train_arr.reshape(-1, 1, int(np.sqrt(customers)), int(np.sqrt(customers)))
+    img_test = test_arr.reshape(-1, 1, int(np.sqrt(customers)), int(np.sqrt(customers)))
+    
+    weather_train, weather_test = load_and_preprocess_weather()
+    cond_train = check_weekend(weather_train)
+    cond_test  = check_weekend(weather_test)
+        
+    cond_train = np.asarray(cond_train)[:img_train.shape[0], :]
+    cond_test = np.asarray(cond_test)[:img_test.shape[0], :]
+    
+    cond_features = cond_train.shape[1]
+    
+    train_dataset = TensorDataset(torch.from_numpy(img_train), torch.from_numpy(cond_train))
+    train_loader = DataLoader(train_dataset, batch_size)
+    
+    test_dataset = TensorDataset(torch.from_numpy(img_test), torch.from_numpy(cond_test))
+    test_loader = DataLoader(test_dataset, batch_size)
+    
+    return  train_loader, test_loader, cond_features, (train_cols, test_cols), img_train, img_test     
+    
