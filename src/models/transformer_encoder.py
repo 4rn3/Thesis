@@ -1,3 +1,4 @@
+#Based on https://github.com/fahim-sikder/TransFusion
 import torch
 import torch.nn as nn
 
@@ -13,7 +14,7 @@ class TransEncoder(nn.Module):
     def __init__(self, features, latent_dim=256, num_heads=8, num_layers = 6, seq_len = 15 ,cond_model = "mlp", cond_features = None ,dropout = 0.1, activation = 'gelu', ff_size = 1024, device="cpu"):
         
         super().__init__()
-
+        self.model_name = "TransEncoder"
         self.channels = features
         self.self_condition = None
         self.context_size = None
@@ -45,7 +46,7 @@ class TransEncoder(nn.Module):
         if cond_model == "mlp":
             self.conditional_embedding = MLPConditionalEmbedding(self.seq_len, self.latent_dim)
         if cond_model == "te":
-            self.conditional_embedding = TEConditionalEmbedding(self.cond_features)
+            self.conditional_embedding = TEConditionalEmbedding(features=self.cond_features)
         if cond_model == "stft":
             self.conditional_embedding = STFTEmbedding(seq_len=self.channels, device=self.device)
         if cond_model == "fft":

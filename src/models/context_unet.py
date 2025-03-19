@@ -1,3 +1,4 @@
+#Based on https://github.com/buds-lab/energy-diffusion
 import torch
 import torch.nn as nn
 from embeddings.transformer import TEConditionalEmbedding

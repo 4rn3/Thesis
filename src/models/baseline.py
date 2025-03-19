@@ -1,3 +1,4 @@
+#Based on Generating Synthetic Net Load Data with Physics-informed Diffusion Model by Zhang et al
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

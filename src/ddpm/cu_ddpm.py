@@ -1,3 +1,4 @@
+#Based on https://github.com/buds-lab/energy-diffusion
 import numpy as np
 
 import torch
