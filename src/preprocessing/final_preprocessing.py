@@ -84,7 +84,7 @@ def preprocess(df):
     return norm_train, norm_test
 
 def filter_data(data, threshold=0.95):
-    min_non_na_count = int(data.shape[1] * threshold)
+    min_non_na_count = int(data.shape[0] * threshold)
     cleaned_data = data.dropna(thresh=min_non_na_count, axis=1)
     return cleaned_data
 
@@ -94,8 +94,10 @@ def write_combined_to_disk(types):
     concat_dfs = [df.reset_index(drop=True) for df in concat_dfs]
     concat_dfs = [df.iloc[:least_rows] for df in concat_dfs]
     meter_df = pd.concat(concat_dfs, ignore_index=True, axis=1)
+    print(f"concatenated dataset: {meter_df.shape}")
     
     meter_df = filter_data(meter_df)
+    print(f"filtered dataset: {meter_df.shape}")
 
     train, test = preprocess(meter_df)
     
