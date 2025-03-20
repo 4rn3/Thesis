@@ -94,10 +94,8 @@ def write_combined_to_disk(types):
     concat_dfs = [df.reset_index(drop=True) for df in concat_dfs]
     concat_dfs = [df.iloc[:least_rows] for df in concat_dfs]
     meter_df = pd.concat(concat_dfs, ignore_index=True, axis=1)
-    print(f"concatenated dataset: {meter_df.shape}")
     
     meter_df = filter_data(meter_df)
-    print(f"filtered dataset: {meter_df.shape}")
 
     train, test = preprocess(meter_df)
     
