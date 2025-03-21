@@ -5,9 +5,12 @@ import numpy as np
 import pandas as pd
 import seaborn as sb
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
+
 
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+import umap
 
 def visualize_pca_tsne(ori_data, fake_data, seq_len, filename, cond, train_test, feature):
     
@@ -99,7 +102,17 @@ def visualize_all_customers(ori_data, sample, seq_len, filename, cond, train_tes
 
     fake_data_2d = fake_data[idx[0], :, :]
     real_data_2d = real_data[idx[0], :, :]
-
+    
+    fig = plt.figure(figsize=(12, 10))
+    gs = fig.add_gridspec(3, 2)
+    
+    ax_pca = fig.add_subplot(gs[0, 0])
+    ax_tsne = fig.add_subplot(gs[0, 1])
+    ax_umap = fig.add_subplot(gs[1, :])
+    ax_orig = fig.add_subplot(gs[2, 0])
+    ax_synth = fig.add_subplot(gs[2, 1])
+    
+    #-------------------PCA--------------------------------
     pca = PCA(n_components=2)
     pca.fit(real_data_2d)
     pca_real = (pd.DataFrame(pca.transform(real_data_2d))
@@ -108,13 +121,11 @@ def visualize_all_customers(ori_data, sample, seq_len, filename, cond, train_tes
                         .assign(Data='Synthetic'))
     pca_result = pd.concat([pca_real, pca_synthetic]).rename(
         columns={0: '1st Component', 1: '2nd Component'})
-
-    fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(12, 10))
     sb.scatterplot(x='1st Component', y='2nd Component', data=pca_result,
-                    hue='Data', style='Data', ax=axs[0,0])
+                    hue='Data', style='Data', ax=ax_pca)
     sb.despine()
-    axs[0,0].set_title('PCA Result')
-
+    ax_pca.set_title('PCA Result')
+    #-------------------TSNE--------------------------------
     tsne_data = np.concatenate((real_data_2d, fake_data_2d), axis=0)
         
     tsne = TSNE(n_components=2, verbose=0, perplexity=15)
@@ -122,15 +133,26 @@ def visualize_all_customers(ori_data, sample, seq_len, filename, cond, train_tes
     tsne_result = pd.DataFrame(tsne_result, columns=['X', 'Y']).assign(Data='Real')
     tsne_result.loc[len(real_data_2d):, 'Data'] = 'Synthetic'
 
-    sb.scatterplot(x='X', y='Y', data=tsne_result, hue='Data', style='Data', ax=axs[0,1])
+    sb.scatterplot(x='X', y='Y', data=tsne_result, hue='Data', style='Data', ax=ax_tsne)
     sb.despine()
-    axs[0,1].set_title('t-SNE Result')
-
-    axs[1,0].plot(real_data[randn_num[0], customer, :].squeeze(), label='Original', color='blue')
-    axs[1,0].set_title('Original Data')
+    ax_tsne.set_title('t-SNE Result')
+    #-------------------UMAP--------------------------------
+    umap_reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, n_components=2, random_state=42)
+    umap_data = np.concatenate((real_data_2d, fake_data_2d), axis=0)
+    umap_result = umap_reducer.fit_transform(umap_data)
+    umap_result_df = pd.DataFrame(umap_result, columns=['UMAP1', 'UMAP2']).assign(Data='Real')
+    umap_result_df.loc[len(real_data_2d):, 'Data'] = 'Synthetic'
+    
+    sb.scatterplot(x='UMAP1', y='UMAP2', data=umap_result_df, hue='Data', style='Data', ax=ax_umap)
+    sb.despine()
+    ax_umap.set_title('UMAP Result')
+    
+    #-------------------Line--------------------------------
+    ax_orig.plot(real_data[randn_num[0], customer, :].squeeze(), label='Original', color='blue')
+    ax_orig.set_title('Original Data')
         
-    axs[1,1].plot(fake_data[randn_num[0], customer, :].squeeze(), label='Synthetic', color='red')
-    axs[1,1].set_title('Synthetic Data')
+    ax_synth.plot(fake_data[randn_num[0], customer, :].squeeze(), label='Synthetic', color='red')
+    ax_synth.set_title('Synthetic Data')
     
     fig.suptitle(f'Qualitative Comparison of Real ({train_test}) and Synthetic Data Distributions', 
                  fontsize=14)
@@ -141,33 +163,42 @@ def visualize_all_customers(ori_data, sample, seq_len, filename, cond, train_tes
     
     
     
-def visualize_all_customers_unet(ori_data, sample, filename, train_test = "Train", cond=False):
-        
+def visualize_all_customers_unet(ori_data, sample, filename, train_test="Train", cond=False):
+    
     f_name = f'./logging/plots/{filename}_pca_tsne_without_conditioning_{train_test}.png'
     
     if cond:
         f_name = f'./logging/plots/{filename}_pca_tsne_with_conditioning_{train_test}.png'
-    
     
     fake_data = np.asarray(sample)
     real_data = np.asarray(ori_data)
 
     customer = np.random.choice(real_data.shape[1], 1)[0]
 
+    fig = plt.figure(figsize=(12, 15))
+    gs = fig.add_gridspec(3, 2)
+    
+    ax_pca = fig.add_subplot(gs[0, 0])
+    ax_tsne = fig.add_subplot(gs[0, 1])
+    
+    ax_umap = fig.add_subplot(gs[1, :])
+    
+    ax_orig = fig.add_subplot(gs[2, 0])
+    ax_synth = fig.add_subplot(gs[2, 1])
+
     pca = PCA(n_components=2)
     pca.fit(real_data)
     pca_real = (pd.DataFrame(pca.transform(real_data))
-                    .assign(Data='Real'))
+                .assign(Data='Real'))
     pca_synthetic = (pd.DataFrame(pca.transform(fake_data))
-                        .assign(Data='Synthetic'))
+                       .assign(Data='Synthetic'))
     pca_result = pd.concat([pca_real, pca_synthetic]).rename(
-            columns={0: '1st Component', 1: '2nd Component'})
+        columns={0: '1st Component', 1: '2nd Component'})
 
-    fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(12, 10))
     sb.scatterplot(x='1st Component', y='2nd Component', data=pca_result,
-                    hue='Data', style='Data', ax=axs[0,0])
+                    hue='Data', style='Data', ax=ax_pca)
     sb.despine()
-    axs[0,0].set_title('PCA Result')
+    ax_pca.set_title('PCA Result')
 
     tsne_data = np.concatenate((real_data, fake_data), axis=0)
         
@@ -176,16 +207,29 @@ def visualize_all_customers_unet(ori_data, sample, filename, train_test = "Train
     tsne_result = pd.DataFrame(tsne_result, columns=['X', 'Y']).assign(Data='Real')
     tsne_result.loc[len(real_data):, 'Data'] = 'Synthetic'
 
-    sb.scatterplot(x='X', y='Y', data=tsne_result, hue='Data', style='Data', ax=axs[0,1])
+    sb.scatterplot(x='X', y='Y', data=tsne_result, hue='Data', style='Data', ax=ax_tsne)
     sb.despine()
-    axs[0,1].set_title('t-SNE Result')
-
-    axs[1,0].plot(real_data[:, customer].squeeze(), label='Original', color='blue')
-    axs[1,0].set_title('Original Data')
-        
-    axs[1,1].plot(fake_data[:, customer].squeeze(), label='Synthetic', color='red')
-    axs[1,1].set_title('Synthetic Data')
+    ax_tsne.set_title('t-SNE Result')
     
+    umap_reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, n_components=2, random_state=42)
+    umap_data = np.concatenate((real_data, fake_data), axis=0)
+    umap_result = umap_reducer.fit_transform(umap_data)
+    umap_result_df = pd.DataFrame(umap_result, columns=['UMAP1', 'UMAP2']).assign(Data='Real')
+    umap_result_df.loc[len(real_data):, 'Data'] = 'Synthetic'
+    
+    sb.scatterplot(x='UMAP1', y='UMAP2', data=umap_result_df, hue='Data', style='Data', ax=ax_umap)
+    sb.despine()
+    ax_umap.set_title('UMAP Result', fontsize=14)
+
+    ax_orig.plot(real_data[:, customer].squeeze(), label='Original', color='blue')
+    ax_orig.set_title('Original Data')
+        
+    ax_synth.plot(fake_data[:, customer].squeeze(), label='Synthetic', color='red')
+    ax_synth.set_title('Synthetic Data')
+    
+    fig.suptitle(f'Qualitative Comparison of Real ({train_test}) and Synthetic Data Distributions', 
+                 fontsize=14)
     fig.tight_layout()
+    fig.subplots_adjust(top=.92)
     plt.savefig(f_name)
     plt.show()
