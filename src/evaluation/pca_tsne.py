@@ -141,12 +141,7 @@ def visualize_all_customers(ori_data, sample, seq_len, filename, cond, train_tes
     
     
     
-    
-    
-    
-    
-    
-def visualize_pca_tsne_unet(ori_data, fake_data, customer_ids, filename, train_test = "Train", sample_size=5, img_cols=64, img_rows=64, cond=False):
+def visualize_all_customers_unet(ori_data, sample, filename, train_test = "Train", cond=False):
         
     f_name = f'./logging/plots/{filename}_pca_tsne_without_conditioning_{train_test}.png'
     
@@ -154,53 +149,42 @@ def visualize_pca_tsne_unet(ori_data, fake_data, customer_ids, filename, train_t
         f_name = f'./logging/plots/{filename}_pca_tsne_with_conditioning_{train_test}.png'
     
     
-    ori_data = np.asarray(ori_data)
-    fake_data = np.asarray(fake_data)
-    
-    selected_customer_ids = random.sample(range(len(customer_ids)), sample_size)  
-    
-    ori_data = ori_data.reshape(-1, img_rows * img_cols)
-    fake_data = fake_data.reshape(-1, img_rows * img_cols)
-    
-    sample_ori_data = ori_data[:, selected_customer_ids]
-    sample_fake_data = fake_data[:, selected_customer_ids]
-        
+    fake_data = np.asarray(sample)
+    real_data = np.asarray(ori_data)
+
+    customer = np.random.choice(real_data.shape[1], 1)[0]
+
     pca = PCA(n_components=2)
-    pca.fit(sample_ori_data)
-    pca_real = (pd.DataFrame(pca.transform(sample_ori_data))
-                .assign(Data='Real'))
-    pca_synthetic = (pd.DataFrame(pca.transform(sample_fake_data))
-                     .assign(Data='Synthetic'))
-        
+    pca.fit(real_data)
+    pca_real = (pd.DataFrame(pca.transform(real_data))
+                    .assign(Data='Real'))
+    pca_synthetic = (pd.DataFrame(pca.transform(fake_data))
+                        .assign(Data='Synthetic'))
     pca_result = pd.concat([pca_real, pca_synthetic]).rename(
-        columns={0: '1st Component', 1: '2nd Component'})
-    
-    
-    tsne_data = np.concatenate((sample_ori_data, sample_fake_data), axis=0)
-    
+            columns={0: '1st Component', 1: '2nd Component'})
+
+    fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(12, 10))
+    sb.scatterplot(x='1st Component', y='2nd Component', data=pca_result,
+                    hue='Data', style='Data', ax=axs[0,0])
+    sb.despine()
+    axs[0,0].set_title('PCA Result')
+
+    tsne_data = np.concatenate((real_data, fake_data), axis=0)
+        
     tsne = TSNE(n_components=2, verbose=0, perplexity=15)
     tsne_result = tsne.fit_transform(tsne_data)
     tsne_result = pd.DataFrame(tsne_result, columns=['X', 'Y']).assign(Data='Real')
-    tsne_result.loc[len(sample_ori_data):, 'Data'] = 'Synthetic'
-    
-    fig, axs = plt.subplots(ncols=2, nrows=6, figsize=(12, 20))
-    
-    sb.scatterplot(x='1st Component', y='2nd Component', data=pca_result,
-                   hue='Data', style='Data', ax=axs[0,0])
-    
-    sb.despine()
-    axs[0,0].set_title('PCA Result')
-    
+    tsne_result.loc[len(real_data):, 'Data'] = 'Synthetic'
+
     sb.scatterplot(x='X', y='Y', data=tsne_result, hue='Data', style='Data', ax=axs[0,1])
     sb.despine()
     axs[0,1].set_title('t-SNE Result')
-    
-    for i in range(len(selected_customer_ids)):
-        axs[i+1,0].plot(sample_ori_data[:, i], label='Original')
-        axs[i+1,0].set_title(f'Original Data ({selected_customer_ids[i]})')
+
+    axs[1,0].plot(real_data[:, customer].squeeze(), label='Original', color='blue')
+    axs[1,0].set_title('Original Data')
         
-        axs[i+1,1].plot(sample_fake_data[:, i], label='Synthetic')
-        axs[i+1,1].set_title(f'Synthetic Data ({selected_customer_ids[i]})')
+    axs[1,1].plot(fake_data[:, customer].squeeze(), label='Synthetic', color='red')
+    axs[1,1].set_title('Synthetic Data')
     
     fig.tight_layout()
     plt.savefig(f_name)
