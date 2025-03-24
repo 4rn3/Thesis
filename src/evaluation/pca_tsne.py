@@ -81,7 +81,7 @@ def visualize_pca_tsne(ori_data, fake_data, seq_len, filename, cond, train_test,
     plt.show()
     
     
-def visualize_all_customers(ori_data, sample, seq_len, filename, cond, train_test, batch_size):
+def visualize_all_customers(ori_data, sample, seq_len, filename, cond, train_test, batch_size, num_customers=100):
     plot_dir = f'./logging/plots/viz/'
     
     if not os.path.exists(plot_dir):
@@ -96,12 +96,13 @@ def visualize_all_customers(ori_data, sample, seq_len, filename, cond, train_tes
     real_data = np.asarray(ori_data)
 
     sample_size = batch_size
-    idx = np.random.permutation(len(real_data))[:sample_size]
-    customer = np.random.choice(real_data.shape[1], 1)[0]
+    idx = np.random.choice(batch_size, 1)[0]
+    customers = np.random.choice(real_data.shape[1], num_customers)
+    customer = np.random.choice(customers, 1)[0]
     randn_num = np.random.permutation(sample_size)[:1]
 
-    fake_data_2d = fake_data[idx[0], :, :]
-    real_data_2d = real_data[idx[0], :, :]
+    fake_data_2d = fake_data[idx, customers, :]
+    real_data_2d = real_data[idx, customers, :]
     
     fig = plt.figure(figsize=(12, 10))
     gs = fig.add_gridspec(3, 2)
