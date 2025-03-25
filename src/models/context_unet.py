@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 from embeddings.transformer import TEConditionalEmbedding
+from embeddings.fft import FFTEmbedding
 
 class ResidualConvBlock(nn.Module):
     def __init__(
@@ -157,14 +158,16 @@ class ContextUnet(nn.Module):
         self.timeembed1 = EmbedFC(1, 4 * n_feat)
         self.timeembed2 = EmbedFC(1, 2 * n_feat)
         
-        assert self.cond_model in {"mlp", "te", "stft"}, "Chosen conditioning model was not valid, the options are mlp, te and stft"
+        assert self.cond_model in {"mlp", "te", "stft", "fft"}, "Chosen conditioning model was not valid, the options are mlp, te, fft and stft"
 
-        
         self.contextembed1 = EmbedFC(n_cfeat, 4 * n_feat)
         self.contextembed2 = EmbedFC(n_cfeat, 2 * n_feat)
         
         if self.cond_model == "te":
             self.pre_embed = TEConditionalEmbedding(features = n_cfeat)
+        
+        if self.cond_model == "fft":
+            self.pre_embed = FFTEmbedding(in_features= n_cfeat, hidden_size=self.latent_dim)
 
         # Only two up-sampling layers
         self.up0 = nn.Sequential(
