@@ -34,7 +34,7 @@ def plot_jsd(real_data_train, real_data_test, samples, filename, cond=False, num
     train_jsd_no_con = []
     test_jsd_no_con = []
     
-    for idx, customer in enumerate(real_data_train):
+    for idx in range(0, real_data_train.shape[1]):
         customer_train = real_data_train[:, idx, :].squeeze()
         customer_test = real_data_test[:, idx, :].squeeze()
 
