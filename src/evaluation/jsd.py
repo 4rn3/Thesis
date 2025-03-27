@@ -21,20 +21,20 @@ def compute_jsd(real_data, generated_data, num_bins):
 
 def plot_jsd(real_data_train, real_data_test, samples, filename, cond=False, num_bins=10):
     
-    plot_dir = f'./logging/plots/JSD/'
+    plot_dir = f'./logging/plots/JSD/{filename}'
     
     if not os.path.exists(plot_dir):
         os.makedirs(plot_dir)
         
-    f_name = f'./logging/plots/JSD/{filename}_pca_tsne_without_conditioning.png'
+    f_name = f'./logging/plots/JSD/{filename}/without_conditioning.png'
     
     if cond:
-        f_name = f'./logging/plots/JSD/{filename}_pca_tsne_with_conditioning.png'
+        f_name = f'./logging/plots/JSD/{filename}/with_conditioning.png'
     
     train_jsd_no_con = []
     test_jsd_no_con = []
     
-    for idx in range(0, real_data_train.shape[1]):
+    for idx in range(0, real_data_train.shape[1]-1):
         customer_train = real_data_train[:, idx, :].squeeze()
         customer_test = real_data_test[:, idx, :].squeeze()
 
