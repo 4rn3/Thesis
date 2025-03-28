@@ -165,54 +165,18 @@ def cluster(data, k):
         
     return pd.DataFrame(clustered_data).T
 
-def serve_data(types=["ev","hp","pv","re"], seq_len=336, batch_size=256, overwrite=False):
+def serve_data(types=["ev","hp","pv","re"], seq_len=336, batch_size=256, overwrite=False, kmeans=True, k=10):
     if not os.path.isfile(os.path.join(PREPROCESSED_DIR, "meter_train_df.npy")) or overwrite:
         write_combined_to_disk(types)
     
     train_df, test_df = load_data()
+    
+    if kmeans:
+        train_df = cluster(train_df, k)
+        test_df = cluster(test_df, k)
+    
     features = train_df.shape[1]
         
-    train_cols = train_df.columns.tolist()
-    test_cols = test_df.columns.tolist()
-    
-    train = np.asarray(MakeDATA(train_df, seq_len))
-    test = np.asarray(MakeDATA(test_df, seq_len))
-    
-    train, test = train.transpose(0,2,1), test.transpose(0,2,1)
-    print(train.shape)
-    
-    weather_train, weather_test = load_and_preprocess_weather()
-    cond_train = check_weekend(weather_train)
-    cond_test  = check_weekend(weather_test)
-    
-    cond_features = cond_train.shape[1]
-    
-    cond_train = np.asarray(MakeDATA(cond_train, seq_len))
-    cond_test = np.asarray(MakeDATA(cond_test, seq_len))
-    
-    cond_train, cond_test = cond_train.transpose(0,2,1), cond_test.transpose(0,2,1)
-    
-    cond_train = cond_train[:train.shape[0], :, :]
-    cond_test = cond_test[:test.shape[0], :, :]
-    
-    train_dataset = TensorDataset(torch.from_numpy(train), torch.from_numpy(cond_train))
-    train_loader = DataLoader(train_dataset, batch_size)
-    
-    test_dataset = TensorDataset(torch.from_numpy(test), torch.from_numpy(cond_test))
-    test_loader = DataLoader(test_dataset, batch_size)
-    
-    return train_loader, test_loader, train_cols, test_cols, test, features, cond_features
-
-def serve_data_kmeans(seq_len=12, batch_size=256, k=15, overwrite=False, types=["re"]):
-    if not os.path.isfile(os.path.join(PREPROCESSED_DIR, "meter_train_df.npy")) or overwrite:
-        write_combined_to_disk(types)
-    
-    train_df, test_df = load_data()
-
-    train_df = cluster(train_df, k)
-    test_df = cluster(test_df, k)
-    features = train_df.shape[1]
-
     train_cols = train_df.columns.tolist()
     test_cols = test_df.columns.tolist()
     
