@@ -4,6 +4,9 @@ import math
 import pandas as pd
 import numpy as np
 
+from sklearn.cluster import KMeans
+from sklearn.model_selection import train_test_split
+
 import torch
 from torch.utils.data import Dataset, DataLoader, TensorDataset
 
@@ -44,13 +47,6 @@ def remove_outliers_iqr(data):
     upper_bound = Q3 + 1.0 * IQR
     df[(df < lower_bound) | (df > upper_bound)] = np.nan
     return df
-
-# def normalize_data(data):
-#     df = data.copy()
-#     max_val = df.max()
-#     min_val = df.min()
-#     df = (df - min_val) / (max_val - min_val)
-#     return df
 
 def normalize_data(data):
     df = data.copy()
@@ -158,6 +154,17 @@ def check_weekend(df):
     df["is_weekend"] = (df.index.weekday >= 5).astype(int)
     return df
 
+def cluster(data, k):
+    kmeans = KMeans(n_clusters=10)
+    cluster_labels = kmeans.fit_predict(data.T)
+    
+    clustered_data = []
+    for cluster in range(kmeans.n_clusters):
+        cluster_data = data.iloc[:, cluster_labels == cluster].mean(axis=1)
+        clustered_data.append(cluster_data)
+        
+    return pd.DataFrame(clustered_data).T
+
 def serve_data(types=["ev","hp","pv","re"], seq_len=336, batch_size=256, overwrite=False):
     if not os.path.isfile(os.path.join(PREPROCESSED_DIR, "meter_train_df.npy")) or overwrite:
         write_combined_to_disk(types)
@@ -172,6 +179,7 @@ def serve_data(types=["ev","hp","pv","re"], seq_len=336, batch_size=256, overwri
     test = np.asarray(MakeDATA(test_df, seq_len))
     
     train, test = train.transpose(0,2,1), test.transpose(0,2,1)
+    print(train.shape)
     
     weather_train, weather_test = load_and_preprocess_weather()
     cond_train = check_weekend(weather_train)
@@ -194,6 +202,49 @@ def serve_data(types=["ev","hp","pv","re"], seq_len=336, batch_size=256, overwri
     test_loader = DataLoader(test_dataset, batch_size)
     
     return train_loader, test_loader, train_cols, test_cols, test, features, cond_features
+
+def serve_data_kmeans(seq_len=12, batch_size=256, k=15, overwrite=False, types=["re"]):
+    if not os.path.isfile(os.path.join(PREPROCESSED_DIR, "meter_train_df.npy")) or overwrite:
+        write_combined_to_disk(types)
+    
+    train_df, test_df = load_data()
+
+    train_df = cluster(train_df, k)
+    test_df = cluster(test_df, k)
+    features = train_df.shape[1]
+
+    train_cols = train_df.columns.tolist()
+    test_cols = test_df.columns.tolist()
+    
+    train = np.asarray(MakeDATA(train_df, seq_len))
+    test = np.asarray(MakeDATA(test_df, seq_len))
+    
+    train, test = train.transpose(0,2,1), test.transpose(0,2,1)
+    print(train.shape)
+    
+    weather_train, weather_test = load_and_preprocess_weather()
+    cond_train = check_weekend(weather_train)
+    cond_test  = check_weekend(weather_test)
+    
+    cond_features = cond_train.shape[1]
+    
+    cond_train = np.asarray(MakeDATA(cond_train, seq_len))
+    cond_test = np.asarray(MakeDATA(cond_test, seq_len))
+    
+    cond_train, cond_test = cond_train.transpose(0,2,1), cond_test.transpose(0,2,1)
+    
+    cond_train = cond_train[:train.shape[0], :, :]
+    cond_test = cond_test[:test.shape[0], :, :]
+    
+    train_dataset = TensorDataset(torch.from_numpy(train), torch.from_numpy(cond_train))
+    train_loader = DataLoader(train_dataset, batch_size)
+    
+    test_dataset = TensorDataset(torch.from_numpy(test), torch.from_numpy(cond_test))
+    test_loader = DataLoader(test_dataset, batch_size)
+    
+    return train_loader, test_loader, train_cols, test_cols, test, features, cond_features
+    
+    
 
 def serve_data_unet(types=["ev","hp","pv","re"], batch_size=10, overwrite=False, customers=9216):
     if not os.path.isfile(os.path.join(PREPROCESSED_DIR, "meter_train_df.npy")) or overwrite:
@@ -230,4 +281,71 @@ def serve_data_unet(types=["ev","hp","pv","re"], batch_size=10, overwrite=False,
     test_loader = DataLoader(test_dataset, batch_size)
     
     return  train_loader, test_loader, cond_features, (train_cols, test_cols), img_train, img_test     
+
+class Sine_Pytorch(torch.utils.data.Dataset):
+    
+    def __init__(self, no_samples, seq_len, features):
+        
+        self.data = []
+        
+        for i in range(no_samples):
+            
+            temp = []
+            
+            for k in range(features):
+                
+                freq = np.random.uniform(0, 0.1)
+                
+                phase = np.random.uniform(0, 0.1)
+                
+                temp_data = [np.sin(freq*j + phase) for j in range(seq_len)]
+                
+                temp.append(temp_data)
+                
+            temp = np.transpose(np.asarray(temp))
+            
+            temp = (temp + 1) * 0.5
+            
+            self.data.append(temp)
+        
+        self.data = np.asarray(self.data, dtype = np.float32)
+        
+    def __len__(self):
+        
+        return self.data.shape[0]
+    
+    def __getitem__(self, idx):
+        
+        return self.data[idx, :, :]
+
+def serve_data_sine(batch_size, seq_len, var):
+    data = Sine_Pytorch(10000, seq_len, var)
+        
+    train_data, test_data = train_test_split(data, train_size = 0.8, random_state = 41)
+
+    train_data = np.asarray(train_data).transpose(0,2,1)
+    test_data = np.asarray(test_data).transpose(0,2,1)
+    print(np.asarray(train_data).shape)
+
+    
+    weather_train, weather_test = load_and_preprocess_weather()
+    cond_train = check_weekend(weather_train)
+    cond_test  = check_weekend(weather_test)
+    
+    cond_features = cond_train.shape[1]
+    
+    cond_train = np.asarray(MakeDATA(cond_train, seq_len))
+    cond_test = np.asarray(MakeDATA(cond_test, seq_len))
+    
+    cond_train = cond_train[:np.asarray(train_data).shape[0], :, :]
+    cond_test = cond_test[:np.asarray(test_data).shape[0], :, :]
+    
+    train_dataset = TensorDataset(torch.from_numpy(train_data), torch.from_numpy(np.asarray(cond_train)))
+    train_loader = DataLoader(train_dataset, batch_size)
+    
+    test_dataset = TensorDataset(torch.from_numpy(test_data), torch.from_numpy(np.asarray(cond_test)))
+    test_loader = DataLoader(test_dataset, batch_size)
+    
+    return train_loader, test_loader, var, test_data
+    
     
