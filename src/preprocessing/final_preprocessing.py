@@ -60,8 +60,6 @@ def interpolate_data(data):
     for col in data.columns:
         data[col] = data[col].interpolate(method="linear")
     
-    data = data.fillna(data.mean()) #there where still some Nans after interpolating
-
     if data.isna().sum().sum() > 0:
         raise ValueError("There are still NaN values after interpolation!")
     return data
@@ -131,6 +129,42 @@ class MakeDATA(Dataset):
 
     def __getitem__(self, idx):
         return self.samples[idx]
+    
+class Sine_Pytorch(torch.utils.data.Dataset):
+    
+    def __init__(self, no_samples, seq_len, features):
+        
+        self.data = []
+        
+        for i in range(no_samples):
+            
+            temp = []
+            
+            for k in range(features):
+                
+                freq = np.random.uniform(0, 0.1)
+                
+                phase = np.random.uniform(0, 0.1)
+                
+                temp_data = [np.sin(freq*j + phase) for j in range(seq_len)]
+                
+                temp.append(temp_data)
+                
+            temp = np.transpose(np.asarray(temp))
+            
+            temp = (temp + 1) * 0.5
+            
+            self.data.append(temp)
+        
+        self.data = np.asarray(self.data, dtype = np.float32)
+        
+    def __len__(self):
+        
+        return self.data.shape[0]
+    
+    def __getitem__(self, idx):
+        
+        return self.data[idx, :, :]
 
 def load_and_preprocess_weather():
     df = pd.read_csv(os.path.join(COND_DATA_DIR, "london_weather.csv"))
@@ -208,8 +242,6 @@ def serve_data(types=["ev","hp","pv","re"], seq_len=336, batch_size=256, overwri
     
     return train_loader, test_loader, train_cols, test_cols, test, features, cond_features
     
-    
-
 def serve_data_unet(types=["ev","hp","pv","re"], batch_size=10, overwrite=False, customers=9216):
     if not os.path.isfile(os.path.join(PREPROCESSED_DIR, "meter_train_df.npy")) or overwrite:
         print("write to file")
@@ -245,42 +277,6 @@ def serve_data_unet(types=["ev","hp","pv","re"], batch_size=10, overwrite=False,
     test_loader = DataLoader(test_dataset, batch_size)
     
     return  train_loader, test_loader, cond_features, (train_cols, test_cols), img_train, img_test     
-
-class Sine_Pytorch(torch.utils.data.Dataset):
-    
-    def __init__(self, no_samples, seq_len, features):
-        
-        self.data = []
-        
-        for i in range(no_samples):
-            
-            temp = []
-            
-            for k in range(features):
-                
-                freq = np.random.uniform(0, 0.1)
-                
-                phase = np.random.uniform(0, 0.1)
-                
-                temp_data = [np.sin(freq*j + phase) for j in range(seq_len)]
-                
-                temp.append(temp_data)
-                
-            temp = np.transpose(np.asarray(temp))
-            
-            temp = (temp + 1) * 0.5
-            
-            self.data.append(temp)
-        
-        self.data = np.asarray(self.data, dtype = np.float32)
-        
-    def __len__(self):
-        
-        return self.data.shape[0]
-    
-    def __getitem__(self, idx):
-        
-        return self.data[idx, :, :]
 
 def serve_data_sine(batch_size, seq_len, var):
     data = Sine_Pytorch(10000, seq_len, var)
