@@ -13,89 +13,6 @@ import umap
 
 from sklearn.preprocessing import StandardScaler
 
-    
-def visualize_all_customers(ori_data, sample, seq_len, filename, cond, train_test, batch_size, num_customers=100):
-    plot_dir = f'./logging/plots/viz/'
-    
-    if not os.path.exists(plot_dir):
-        os.makedirs(plot_dir)
-    
-    f_name = f'./logging/plots/viz/{filename}_pca_tsne_without_conditioning_{train_test}_{seq_len}.png'
-    
-    if cond:
-        f_name = f'./logging/plots/viz/{filename}_pca_tsne_with_conditioning_{train_test}_{seq_len}.png'
-    
-    fake_data = np.asarray(sample)
-    real_data = np.asarray(ori_data)
-
-    sample_size = batch_size
-    idx = np.random.choice(batch_size, 1)[0]
-    customers = np.random.choice(real_data.shape[1], num_customers)
-    customer = np.random.choice(customers, 1)[0]
-    randn_num = np.random.permutation(sample_size)[:1]
-
-    fake_data_2d = fake_data[idx, customers, :]
-    real_data_2d = real_data[idx, customers, :]
-    
-    fig = plt.figure(figsize=(12, 10))
-    gs = fig.add_gridspec(3, 2)
-    
-    ax_pca = fig.add_subplot(gs[0, 0])
-    ax_tsne = fig.add_subplot(gs[0, 1])
-    ax_umap = fig.add_subplot(gs[1, :])
-    ax_orig = fig.add_subplot(gs[2, 0])
-    ax_synth = fig.add_subplot(gs[2, 1])
-    
-    #-------------------PCA--------------------------------
-    pca = PCA(n_components=2)
-    pca.fit(real_data_2d)
-    pca_real = (pd.DataFrame(pca.transform(real_data_2d))
-                .assign(Data='Real'))
-    pca_synthetic = (pd.DataFrame(pca.transform(fake_data_2d))
-                        .assign(Data='Synthetic'))
-    pca_result = pd.concat([pca_real, pca_synthetic]).rename(
-        columns={0: '1st Component', 1: '2nd Component'})
-    sb.scatterplot(x='1st Component', y='2nd Component', data=pca_result,
-                    hue='Data', style='Data', ax=ax_pca)
-    sb.despine()
-    ax_pca.set_title('PCA Result')
-    #-------------------TSNE--------------------------------
-    tsne_data = np.concatenate((real_data_2d, fake_data_2d), axis=0)
-        
-    tsne = TSNE(n_components=2, verbose=0, perplexity=15)
-    tsne_result = tsne.fit_transform(tsne_data)
-    tsne_result = pd.DataFrame(tsne_result, columns=['X', 'Y']).assign(Data='Real')
-    tsne_result.loc[len(real_data_2d):, 'Data'] = 'Synthetic'
-
-    sb.scatterplot(x='X', y='Y', data=tsne_result, hue='Data', style='Data', ax=ax_tsne)
-    sb.despine()
-    ax_tsne.set_title('t-SNE Result')
-    #-------------------UMAP--------------------------------
-    umap_reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, n_components=2, random_state=42)
-    umap_data = np.concatenate((real_data_2d, fake_data_2d), axis=0)
-    umap_result = umap_reducer.fit_transform(umap_data)
-    umap_result_df = pd.DataFrame(umap_result, columns=['UMAP1', 'UMAP2']).assign(Data='Real')
-    umap_result_df.loc[len(real_data_2d):, 'Data'] = 'Synthetic'
-    
-    sb.scatterplot(x='UMAP1', y='UMAP2', data=umap_result_df, hue='Data', style='Data', ax=ax_umap)
-    sb.despine()
-    ax_umap.set_title('UMAP Result')
-    
-    #-------------------Line--------------------------------
-    ax_orig.plot(real_data[randn_num[0], customer, :].squeeze(), label='Original', color='blue')
-    ax_orig.set_title('Original Data')
-        
-    ax_synth.plot(fake_data[randn_num[0], customer, :].squeeze(), label='Synthetic', color='red')
-    ax_synth.set_title('Synthetic Data')
-    
-    fig.suptitle(f'Qualitative Comparison of Real ({train_test}) and Synthetic Data Distributions', 
-                 fontsize=14)
-    plt.savefig(f_name)
-    fig.tight_layout()
-    fig.subplots_adjust(top=.88)
-    plt.show()
-
-
 def visual_evaluation(real_data, generated_data, filename, cond, train_test, n_components=2, alpha=0.7):
 
     plot_dir = f'./logging/plots/viz/{filename}'
@@ -207,7 +124,7 @@ def visual_evaluation(real_data, generated_data, filename, cond, train_test, n_c
     plt.show()
 
 
-def visualize_all_customers_unet(ori_data, sample, filename, train_test="Train", cond=False):
+def visual_evaluation_unet(ori_data, sample, filename, train_test="Train", cond=False):
     
     plot_dir = f'./logging/plots/viz/{filename}'
     
