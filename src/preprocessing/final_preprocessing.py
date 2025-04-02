@@ -8,7 +8,6 @@ from sklearn.cluster import KMeans
 from sklearn.model_selection import train_test_split as tts
 
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 
 import torch
 from torch.utils.data import Dataset, DataLoader, TensorDataset
@@ -212,18 +211,16 @@ def pca_transform(data, k, variance_ratio=0.95):
         original_index = data.index
         data = data.values
     
-    scaler = StandardScaler()
-    scaled_data = scaler.fit_transform(data)
-    
     if k is None:
         temp_pca = PCA()
-        temp_pca.fit(scaled_data)
+        temp_pca.fit(data)
     
-    cumulative_variance = np.cumsum(temp_pca.explained_variance_ratio_)
-    k = np.argmax(cumulative_variance >= variance_ratio) + 1
+        cumulative_variance = np.cumsum(temp_pca.explained_variance_ratio_)
+        k = np.argmax(cumulative_variance >= variance_ratio) + 1
     
+    print(f"Number of PCA components: {k}")
     pca = PCA(n_components=k)
-    reduced_data = pca.fit_transform(scaled_data)
+    reduced_data = pca.fit_transform(data)
     
     column_names = [f'PC{i+1}' for i in range(reduced_data.shape[1])]
     if original_index is not None:
@@ -231,9 +228,9 @@ def pca_transform(data, k, variance_ratio=0.95):
     else:
         reduced_df = pd.DataFrame(reduced_data, columns=column_names)
     
-    return reduced_df
+    return reduced_df, k
 
-def serve_data(types=["ev","hp","pv","re"], seq_len=336, batch_size=256, overwrite=False, kmeans=False, pca=True, k=None):
+def serve_data(types=["ev","hp","pv","re"], seq_len=336, batch_size=256, overwrite=False, kmeans=True, pca=False, k=None):
     if not os.path.isfile(os.path.join(PREPROCESSED_DIR, "meter_train_df.npy")) or overwrite:
         print("Writing to disk")
         write_combined_to_disk(types)
@@ -247,8 +244,8 @@ def serve_data(types=["ev","hp","pv","re"], seq_len=336, batch_size=256, overwri
         print(f"K-means data shape train:{train_df.shape}, test: {train_df.shape}")
         
     if pca:
-        train_df = pca_transform(train_df, k)
-        test_df = pca_transform(test_df, k)
+        train_df, k = pca_transform(train_df, k)
+        test_df, _ = pca_transform(test_df, k)
         print(f"PCA data shape train:{train_df.shape}, test: {train_df.shape}")   
     
     features = train_df.shape[1]

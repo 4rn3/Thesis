@@ -29,8 +29,7 @@ def visual_evaluation(real_data, generated_data, filename, cond, train_test, n_c
     generated_reshaped = generated_data.reshape(generated_data.shape[0], -1)
     
     scaler = StandardScaler()
-    real_scaled = scaler.fit_transform(real_reshaped)
-    generated_scaled = scaler.transform(generated_reshaped)
+    generated_scaled = scaler.fit_transform(generated_reshaped)
     
     fig = plt.figure(figsize=(12, 10))
     gs = GridSpec(3, 2, figure=fig)
@@ -38,7 +37,7 @@ def visual_evaluation(real_data, generated_data, filename, cond, train_test, n_c
     ax1 = fig.add_subplot(gs[0, 0])
     
     pca = PCA(n_components=n_components)
-    real_pca = pca.fit_transform(real_scaled)
+    real_pca = pca.fit_transform(real_reshaped)
     generated_pca = pca.transform(generated_scaled)
     
     ax1.scatter(real_pca[:, 0], 
@@ -56,13 +55,13 @@ def visual_evaluation(real_data, generated_data, filename, cond, train_test, n_c
     
     ax2 = fig.add_subplot(gs[0, 1])
     
-    combined_data = np.vstack([real_scaled, generated_scaled])
+    combined_data = np.vstack([real_reshaped, generated_scaled])
     
     tsne = TSNE(n_components=2, random_state=42)
     combined_tsne = tsne.fit_transform(combined_data)
     
-    real_tsne = combined_tsne[:real_scaled.shape[0]]
-    generated_tsne = combined_tsne[real_scaled.shape[0]:]
+    real_tsne = combined_tsne[:real_reshaped.shape[0]]
+    generated_tsne = combined_tsne[real_reshaped.shape[0]:]
     
     ax2.scatter(real_tsne[:, 0], real_tsne[:, 1], 
                 label='Real Data', alpha=alpha)
@@ -80,8 +79,8 @@ def visual_evaluation(real_data, generated_data, filename, cond, train_test, n_c
     umap_reducer = umap.UMAP(n_components=2, random_state=42)
     combined_umap = umap_reducer.fit_transform(combined_data)
     
-    real_umap = combined_umap[:real_scaled.shape[0]]
-    generated_umap = combined_umap[real_scaled.shape[0]:]
+    real_umap = combined_umap[:real_reshaped.shape[0]]
+    generated_umap = combined_umap[real_reshaped.shape[0]:]
     
     ax3.scatter(real_umap[:, 0], real_umap[:, 1], 
                 label='Real Data', alpha=alpha)
@@ -105,7 +104,7 @@ def visual_evaluation(real_data, generated_data, filename, cond, train_test, n_c
     
     ax4 = fig.add_subplot(gs[2, :])
     
-    real_sample = real_data[real_sample_index, selected_column, :]
+    real_sample = real_data[generated_sample_index, selected_column, :]
     generated_sample = generated_data[generated_sample_index, selected_column, :]
     
     time_range = np.arange(real_sample.shape[0])
@@ -140,11 +139,10 @@ def visual_evaluation_unet(ori_data, sample, filename, train_test="Train", cond=
     real_data = np.asarray(ori_data)
     
     scaler = StandardScaler()
-    real_scaled = scaler.fit_transform(real_data)
-    generated_scaled = scaler.transform(fake_data)
+    generated_scaled = scaler.fit_transform(fake_data)
     
 
-    customer = np.random.choice(real_scaled.shape[1], 1)[0]
+    customer = np.random.choice(real_data.shape[1], 1)[0]
 
     fig = plt.figure(figsize=(12, 10))
     gs = fig.add_gridspec(3, 2)
@@ -158,8 +156,8 @@ def visual_evaluation_unet(ori_data, sample, filename, train_test="Train", cond=
     ax_synth = fig.add_subplot(gs[2, 1])
 
     pca = PCA(n_components=2)
-    pca.fit(real_scaled)
-    pca_real = (pd.DataFrame(pca.transform(real_scaled))
+    pca.fit(real_data)
+    pca_real = (pd.DataFrame(pca.transform(real_data))
                 .assign(Data='Real'))
     pca_synthetic = (pd.DataFrame(pca.transform(generated_scaled))
                        .assign(Data='Synthetic'))
@@ -171,7 +169,7 @@ def visual_evaluation_unet(ori_data, sample, filename, train_test="Train", cond=
     sb.despine()
     ax_pca.set_title('PCA Result')
 
-    tsne_data = np.concatenate((real_scaled, generated_scaled), axis=0)
+    tsne_data = np.concatenate((real_data, generated_scaled), axis=0)
         
     tsne = TSNE(n_components=2, verbose=0, perplexity=15)
     tsne_result = tsne.fit_transform(tsne_data)
@@ -183,7 +181,7 @@ def visual_evaluation_unet(ori_data, sample, filename, train_test="Train", cond=
     ax_tsne.set_title('t-SNE Result')
     
     umap_reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, n_components=2, random_state=42)
-    umap_data = np.concatenate((real_scaled, generated_scaled), axis=0)
+    umap_data = np.concatenate((real_data, generated_scaled), axis=0)
     umap_result = umap_reducer.fit_transform(umap_data)
     umap_result_df = pd.DataFrame(umap_result, columns=['UMAP1', 'UMAP2']).assign(Data='Real')
     umap_result_df.loc[len(real_data):, 'Data'] = 'Synthetic'
@@ -192,7 +190,7 @@ def visual_evaluation_unet(ori_data, sample, filename, train_test="Train", cond=
     sb.despine()
     ax_umap.set_title('UMAP Result', fontsize=14)
 
-    ax_orig.plot(real_scaled[:, customer].squeeze(), label='Original')
+    ax_orig.plot(real_data[:, customer].squeeze(), label='Original')
     ax_orig.set_title('Original Data')
         
     ax_synth.plot(generated_scaled[:, customer].squeeze(), label='Synthetic')
