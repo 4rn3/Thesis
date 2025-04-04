@@ -11,22 +11,6 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 import umap
 
-
-def normalize_data(data):
-    df = data.copy()
-
-    for col in range(0, df.shape[1]):
-        min_val = df[col].min()
-        max_val = df[col].max()
-        range_val = max_val - min_val
-
-        if range_val != 0:
-            df[col] = (df[col] - min_val) / range_val
-        else:
-            df[col] = 0
-
-    return df
-
 def visual_evaluation(real_data, generated_data, filename, cond, train_test, n_components=2, alpha=0.7):
 
     plot_dir = f'./logging/plots/viz/{filename}'
