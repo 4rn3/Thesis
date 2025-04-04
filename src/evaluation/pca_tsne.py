@@ -25,9 +25,7 @@ def visual_evaluation(real_data, generated_data, filename, cond, train_test, n_c
     
     real_reshaped = real_data.reshape(real_data.shape[0], -1)
     generated_reshaped = generated_data.reshape(generated_data.shape[0], -1)
-    
-    #generated_scaled = normalize_data(generated_reshaped)
-    
+        
     fig = plt.figure(figsize=(12, 10))
     gs = GridSpec(3, 2, figure=fig)
     
