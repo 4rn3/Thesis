@@ -52,10 +52,17 @@ def remove_outliers_iqr(data):
 
 def normalize_data(data):
     df = data.copy()
-    mean_val = df.mean()
-    std_val = df.std()
-    std_val[std_val == 0] = 1
-    df = (df - mean_val) / std_val
+
+    for col in df.columns:
+        min_val = df[col].min()
+        max_val = df[col].max()
+        range_val = max_val - min_val
+
+        if range_val != 0:
+            df[col] = (df[col] - min_val) / range_val
+        else:
+            df[col] = 0
+
     return df
 
 def interpolate_data(data):
@@ -64,7 +71,7 @@ def interpolate_data(data):
     
     if data.isna().sum().sum() > 0:
         raise ValueError("There are still NaN values after interpolation!")
-    
+
     return data
 
 def preprocess(df):

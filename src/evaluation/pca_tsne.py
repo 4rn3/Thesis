@@ -11,7 +11,21 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 import umap
 
-from sklearn.preprocessing import StandardScaler
+
+def normalize_data(data):
+    df = data.copy()
+
+    for col in range(0, df.shape[1]):
+        min_val = df[col].min()
+        max_val = df[col].max()
+        range_val = max_val - min_val
+
+        if range_val != 0:
+            df[col] = (df[col] - min_val) / range_val
+        else:
+            df[col] = 0
+
+    return df
 
 def visual_evaluation(real_data, generated_data, filename, cond, train_test, n_components=2, alpha=0.7):
 
@@ -28,8 +42,7 @@ def visual_evaluation(real_data, generated_data, filename, cond, train_test, n_c
     real_reshaped = real_data.reshape(real_data.shape[0], -1)
     generated_reshaped = generated_data.reshape(generated_data.shape[0], -1)
     
-    scaler = StandardScaler()
-    generated_scaled = scaler.fit_transform(generated_reshaped)
+    #generated_scaled = normalize_data(generated_reshaped)
     
     fig = plt.figure(figsize=(12, 10))
     gs = GridSpec(3, 2, figure=fig)
@@ -38,7 +51,7 @@ def visual_evaluation(real_data, generated_data, filename, cond, train_test, n_c
     
     pca = PCA(n_components=n_components)
     real_pca = pca.fit_transform(real_reshaped)
-    generated_pca = pca.transform(generated_scaled)
+    generated_pca = pca.transform(generated_reshaped)
     
     ax1.scatter(real_pca[:, 0], 
                 real_pca[:, 1] if n_components > 1 else np.zeros_like(real_pca[:, 0]), 
@@ -55,7 +68,7 @@ def visual_evaluation(real_data, generated_data, filename, cond, train_test, n_c
     
     ax2 = fig.add_subplot(gs[0, 1])
     
-    combined_data = np.vstack([real_reshaped, generated_scaled])
+    combined_data = np.vstack([real_reshaped, generated_reshaped])
     
     tsne = TSNE(n_components=2, random_state=42)
     combined_tsne = tsne.fit_transform(combined_data)
@@ -138,10 +151,6 @@ def visual_evaluation_unet(ori_data, sample, filename, train_test="Train", cond=
     fake_data = np.asarray(sample)
     real_data = np.asarray(ori_data)
     
-    scaler = StandardScaler()
-    generated_scaled = scaler.fit_transform(fake_data)
-    
-
     customer = np.random.choice(real_data.shape[1], 1)[0]
 
     fig = plt.figure(figsize=(12, 10))
@@ -159,7 +168,7 @@ def visual_evaluation_unet(ori_data, sample, filename, train_test="Train", cond=
     pca.fit(real_data)
     pca_real = (pd.DataFrame(pca.transform(real_data))
                 .assign(Data='Real'))
-    pca_synthetic = (pd.DataFrame(pca.transform(generated_scaled))
+    pca_synthetic = (pd.DataFrame(pca.transform(fake_data))
                        .assign(Data='Synthetic'))
     pca_result = pd.concat([pca_real, pca_synthetic]).rename(
         columns={0: '1st Component', 1: '2nd Component'})
@@ -169,7 +178,7 @@ def visual_evaluation_unet(ori_data, sample, filename, train_test="Train", cond=
     sb.despine()
     ax_pca.set_title('PCA Result')
 
-    tsne_data = np.concatenate((real_data, generated_scaled), axis=0)
+    tsne_data = np.concatenate((real_data, fake_data), axis=0)
         
     tsne = TSNE(n_components=2, verbose=0, perplexity=15)
     tsne_result = tsne.fit_transform(tsne_data)
@@ -181,7 +190,7 @@ def visual_evaluation_unet(ori_data, sample, filename, train_test="Train", cond=
     ax_tsne.set_title('t-SNE Result')
     
     umap_reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, n_components=2, random_state=42)
-    umap_data = np.concatenate((real_data, generated_scaled), axis=0)
+    umap_data = np.concatenate((real_data, fake_data), axis=0)
     umap_result = umap_reducer.fit_transform(umap_data)
     umap_result_df = pd.DataFrame(umap_result, columns=['UMAP1', 'UMAP2']).assign(Data='Real')
     umap_result_df.loc[len(real_data):, 'Data'] = 'Synthetic'
@@ -193,7 +202,7 @@ def visual_evaluation_unet(ori_data, sample, filename, train_test="Train", cond=
     ax_orig.plot(real_data[:, customer].squeeze(), label='Original')
     ax_orig.set_title('Original Data')
         
-    ax_synth.plot(generated_scaled[:, customer].squeeze(), label='Synthetic')
+    ax_synth.plot(fake_data[:, customer].squeeze(), label='Synthetic')
     ax_synth.set_title('Synthetic Data')
     
     fig.suptitle(f'Comparison of Real ({train_test}) and Synthetic Data Distributions', 
