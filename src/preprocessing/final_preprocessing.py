@@ -137,21 +137,80 @@ class MakeDATA(Dataset):
     def __getitem__(self, idx):
         return self.samples[idx]
 
-def create_timestamp_sequences(timestamps, seq_len):
-    timestamps = pd.to_datetime(timestamps)
+def create_timestamp_sequences(df, seq_len=336, timestamp_col='Date', normalize=True):    
+    result = df.copy()
+
+    if not pd.api.types.is_datetime64_any_dtype(result[timestamp_col]):
+        result[timestamp_col] = pd.to_datetime(result[timestamp_col])
     
-    hours = timestamps.dt.hour.values
-    dayofweek = timestamps.dt.dayofweek.values
-    is_weekend = (timestamps.dt.dayofweek >= 5).astype(int).values
+    result['year'] = result[timestamp_col].dt.year
+    result['quarter'] = result[timestamp_col].dt.quarter
+    result['month'] = result[timestamp_col].dt.month
+    result['week_of_year'] = result[timestamp_col].dt.isocalendar().week
+    result['day_of_year'] = result[timestamp_col].dt.dayofyear
+    result['day_of_month'] = result[timestamp_col].dt.day
+    result['day_of_week'] = result[timestamp_col].dt.dayofweek
+    result['is_weekend'] = result['day_of_week'].isin([5, 6]).astype(int)
+    result['hour'] = result[timestamp_col].dt.hour
+    result['minute'] = result[timestamp_col].dt.minute
     
-    features = np.stack([hours, dayofweek, is_weekend], axis=1)
+    result['day_of_week_sin'] = np.sin(2 * np.pi * result['day_of_week'] / 7)
+    result['day_of_week_cos'] = np.cos(2 * np.pi * result['day_of_week'] / 7)
+    
+    result['month_sin'] = np.sin(2 * np.pi * result['month'] / 12)
+    result['month_cos'] = np.cos(2 * np.pi * result['month'] / 12)
+    
+    result['hour_sin'] = np.sin(2 * np.pi * result['hour'] / 24)
+    result['hour_cos'] = np.cos(2 * np.pi * result['hour'] / 24)
+    
+    result['minute_sin'] = np.sin(2 * np.pi * result['minute'] / 60)
+    result['minute_cos'] = np.cos(2 * np.pi * result['minute'] / 60)
+    
+    conditions = [
+        (result['hour'] >= 5) & (result['hour'] < 12),
+        (result['hour'] >= 12) & (result['hour'] < 17),
+        (result['hour'] >= 17) & (result['hour'] < 22),
+        (result['hour'] >= 22) | (result['hour'] < 5)
+    ]
+    values = [0, 1, 2, 3]  
+    result['time_of_day'] = np.select(conditions, values)
+    
+    conditions = [
+        (result['month'].isin([12, 1, 2])),
+        (result['month'].isin([3, 4, 5])),
+        (result['month'].isin([6, 7, 8])),
+        (result['month'].isin([9, 10, 11]))
+    ]
+    values = [0, 1, 2, 3]  
+    result['season'] = np.select(conditions, values)
+    
+    result = pd.get_dummies(result, columns=['time_of_day', 'season'], prefix=['tod', 'season'])
+    
+    if timestamp_col in result.columns:
+        result = result.drop(columns=[timestamp_col])
+    
+    if normalize:
+        skip_cols = []
+        skip_cols.extend([col for col in result.columns if 'sin' in col or 'cos' in col])
+        skip_cols.extend([col for col in result.columns if col.startswith('tod_') or col.startswith('season_')])
+        skip_cols.append('is_weekend')
+        
+        norm_cols = [col for col in result.columns if col not in skip_cols]
+        
+        for col in norm_cols:
+            min_val = result[col].min()
+            max_val = result[col].max()
+            if max_val > min_val:
+                result[col] = (result[col] - min_val) / (max_val - min_val)
+    
+    result = result.astype(np.float32)
     
     sequences = []
-    for i in range(len(features) - seq_len + 1):
-        seq = features[i:i + seq_len]
+    for i in range(len(result) - seq_len + 1):
+        seq = result.iloc[i:i+seq_len].values
         sequences.append(seq)
     
-    return np.asarray(sequences)
+    return np.array(sequences, dtype=np.float32)
 
 def create_cond_unet(timestamps):
     timestamps = pd.to_datetime(timestamps)
@@ -215,8 +274,8 @@ def serve_data(types=["ev","hp","pv","re"], seq_len=336, batch_size=256, overwri
     idx = np.load(os.path.join(PREPROCESSING_DIR, "all_df_idx.npy"), allow_pickle=True)
     idx_df = pd.DataFrame(idx, columns=["Date"])
     cond_train, cond_test = train_test_split(idx_df)
-    cond_train = create_timestamp_sequences(cond_train["Date"], seq_len)
-    cond_test = create_timestamp_sequences(cond_test["Date"], seq_len)
+    cond_train = create_timestamp_sequences(cond_train, seq_len)
+    cond_test = create_timestamp_sequences(cond_test, seq_len)
     print(f"timestamp sequenced: {cond_train.shape}, {cond_test.shape}")
     
     if cond:
