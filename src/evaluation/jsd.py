@@ -34,7 +34,7 @@ def plot_jsd(real_data_train, real_data_test, samples, filename, cond=False, num
     train_jsd_no_con = []
     test_jsd_no_con = []
     
-    for idx in range(0, real_data_train.shape[1]-1):
+    for idx in range(0, real_data_train.shape[1]):
         customer_train = real_data_train[:, idx, :].squeeze()
         customer_test = real_data_test[:, idx, :].squeeze()
 
@@ -54,6 +54,51 @@ def plot_jsd(real_data_train, real_data_test, samples, filename, cond=False, num
     ax1.set_ylabel('Frequency')
     ax1.grid(alpha=0.3)
         
+    ax2.hist(test_jsd_no_con, bins=num_bins, alpha=0.7, color='blue', edgecolor='black')
+    ax2.set_title('Test JSD Counts')
+    ax2.set_xlabel('Jensen-Shannon Divergence')
+    ax2.set_ylabel('Frequency')
+    ax2.grid(alpha=0.3)
+
+    plt.tight_layout()
+    plt.suptitle('Jensen-Shannon Divergence Distributions', y=1.05)
+    plt.savefig(f_name)
+    plt.show()
+    
+def plot_jsd_unet(ts_train, ts_test, ts_sample, filename, cond=False, num_bins=10):
+    
+    plot_dir = f'./logging/plots/JSD/{filename}'
+    
+    if not os.path.exists(plot_dir):
+        os.makedirs(plot_dir)
+        
+    f_name = f'./logging/plots/JSD/{filename}/without_conditioning.png'
+    
+    if cond:
+        f_name = f'./logging/plots/JSD/{filename}/with_conditioning.png'
+    
+    train_jsd_no_con = []
+    test_jsd_no_con = []
+    for idx in range(0, ts_train.shape[1]):
+        customer_train = ts_train.squeeze()[idx, :]
+        customer_test = ts_test.squeeze()[idx, :]
+
+        customer_sample = ts_sample.squeeze()[idx, :]
+        
+        jsd_train = compute_jsd(customer_train, customer_sample, 100)
+        jsd_test = compute_jsd(customer_test, customer_sample, 100)
+        
+        train_jsd_no_con.append(jsd_train)
+        test_jsd_no_con.append(jsd_test)
+        
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+            
+    ax1.hist(train_jsd_no_con, bins=num_bins, alpha=0.7, color='blue', edgecolor='black')
+    ax1.set_title('Training JSD Counts')
+    ax1.set_xlabel('Jensen-Shannon Divergence')
+    ax1.set_ylabel('Frequency')
+    ax1.grid(alpha=0.3)
+            
     ax2.hist(test_jsd_no_con, bins=num_bins, alpha=0.7, color='blue', edgecolor='black')
     ax2.set_title('Test JSD Counts')
     ax2.set_xlabel('Jensen-Shannon Divergence')
