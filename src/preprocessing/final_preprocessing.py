@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("ignore", message="Could not find the number of physical cores")
+
 import os
 import math
 
@@ -6,8 +9,6 @@ import numpy as np
 
 from sklearn.cluster import KMeans
 from sklearn.model_selection import train_test_split as tts
-
-from sklearn.decomposition import PCA
 
 import torch
 from torch.utils.data import Dataset, DataLoader, TensorDataset
@@ -128,54 +129,41 @@ class MakeDATA(Dataset):
         for i in range(len(data) - seq_len + 1):
             x = data[i : i + seq_len]
             seq_data.append(x)
-        self.samples = []
-        idx = torch.randperm(len(seq_data))
-        for i in range(len(seq_data)):
-            self.samples.append(seq_data[idx[i]])
-        self.samples = np.asarray(self.samples, dtype=np.float32)
-            
+        self.samples = np.asarray(seq_data, dtype=np.float32) 
+
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, idx):
         return self.samples[idx]
-    
-class Sine_Pytorch(torch.utils.data.Dataset):
-    
-    def __init__(self, no_samples, seq_len, features):
-        
-        self.data = []
-        
-        for i in range(no_samples):
-            
-            temp = []
-            
-            for k in range(features):
-                
-                freq = np.random.uniform(0, 0.1)
-                
-                phase = np.random.uniform(0, 0.1)
-                
-                temp_data = [np.sin(freq*j + phase) for j in range(seq_len)]
-                
-                temp.append(temp_data)
-                
-            temp = np.transpose(np.asarray(temp))
-            
-            temp = (temp + 1) * 0.5
-            
-            self.data.append(temp)
-        
-        self.data = np.asarray(self.data, dtype = np.float32)
-        
-    def __len__(self):
-        
-        return self.data.shape[0]
-    
-    def __getitem__(self, idx):
-        
-        return self.data[idx, :, :]
 
+def create_timestamp_sequences(timestamps, seq_len):
+    timestamps = pd.to_datetime(timestamps)
+    
+    hours = timestamps.dt.hour.values
+    dayofweek = timestamps.dt.dayofweek.values
+    is_weekend = (timestamps.dt.dayofweek >= 5).astype(int).values
+    
+    features = np.stack([hours, dayofweek, is_weekend], axis=1)
+    
+    sequences = []
+    for i in range(len(features) - seq_len + 1):
+        seq = features[i:i + seq_len]
+        sequences.append(seq)
+    
+    return np.asarray(sequences)
+
+def create_cond_unet(timestamps):
+    timestamps = pd.to_datetime(timestamps)
+    
+    hours = timestamps.dt.hour.values
+    dayofweek = timestamps.dt.dayofweek.values
+    is_weekend = (timestamps.dt.dayofweek >= 5).astype(int).values
+    features = np.stack([hours, dayofweek, is_weekend], axis=1)
+    
+    return np.asarray(features)
+    
+    
 def load_and_preprocess_weather():
     df = pd.read_csv(os.path.join(COND_DATA_DIR, "london_weather.csv"))
     df['date'] = pd.to_datetime(df['date'], format='%Y%m%d')
@@ -194,10 +182,6 @@ def load_and_preprocess_weather():
     
     return norm_train, norm_test
 
-def check_weekend(df):
-    df["is_weekend"] = (df.index.weekday >= 5).astype(int)
-    return df
-
 def cluster(data, k):
     kmeans = KMeans(n_clusters=k)
     cluster_labels = kmeans.fit_predict(data.T)
@@ -209,94 +193,75 @@ def cluster(data, k):
         
     return pd.DataFrame(clustered_data).T
 
-def pca_transform(data, k, variance_ratio=0.95):
-    if len(data.shape) != 2:
-        raise ValueError("Input time series data should be 2D with shape (n_samples, n_features)")
-    
-    original_index = None
-    if isinstance(data, pd.DataFrame):
-        original_index = data.index
-        data = data.values
-    
-    if k is None:
-        temp_pca = PCA()
-        temp_pca.fit(data)
-    
-        cumulative_variance = np.cumsum(temp_pca.explained_variance_ratio_)
-        k = np.argmax(cumulative_variance >= variance_ratio) + 1
-    
-    print(f"Number of PCA components: {k}")
-    pca = PCA(n_components=k)
-    reduced_data = pca.fit_transform(data)
-    
-    column_names = [f'PC{i+1}' for i in range(reduced_data.shape[1])]
-    if original_index is not None:
-        reduced_df = pd.DataFrame(reduced_data, columns=column_names, index=original_index)
-    else:
-        reduced_df = pd.DataFrame(reduced_data, columns=column_names)
-    
-    return reduced_df, k
 
-def serve_data(types=["ev","hp","pv","re"], seq_len=336, batch_size=256, overwrite=False, kmeans=True, pca=False, k=None):
+def serve_data(types=["ev","hp","pv","re"], seq_len=336, batch_size=256, overwrite=False, kmeans=True, k=5, cond=False):
     if not os.path.isfile(os.path.join(PREPROCESSED_DIR, "meter_train_df.npy")) or overwrite:
         print("Writing to disk")
         write_combined_to_disk(types)
     
     train_df, test_df = load_data()
-    print(f"Init data shape train:{train_df.shape}, test: {train_df.shape}")
+    print(f"Init data shape train:{train_df.shape}, test: {test_df.shape}")
     
     if kmeans:
         train_df = cluster(train_df, k)
         test_df = cluster(test_df, k)
-        print(f"K-means data shape train:{train_df.shape}, test: {train_df.shape}")
-        
-    if pca:
-        train_df, k = pca_transform(train_df, k)
-        test_df, _ = pca_transform(test_df, k)
-        print(f"PCA data shape train:{train_df.shape}, test: {train_df.shape}")   
-    
+        print(f"K-means data shape train:{train_df.shape}, test: {test_df.shape}")
+            
     features = train_df.shape[1]
         
     train_cols = train_df.columns.tolist()
     test_cols = test_df.columns.tolist()
     
-    print("Adding sequence length")
-    train = np.asarray(MakeDATA(train_df, seq_len))
-    test = np.asarray(MakeDATA(test_df, seq_len))
-    print(f"Data shape train:{train.shape}, test: {test.shape}")
+    idx = np.load(os.path.join(PREPROCESSING_DIR, "all_df_idx.npy"), allow_pickle=True)
+    idx_df = pd.DataFrame(idx, columns=["Date"])
+    cond_train, cond_test = train_test_split(idx_df)
+    cond_train = create_timestamp_sequences(cond_train["Date"], seq_len)
+    cond_test = create_timestamp_sequences(cond_test["Date"], seq_len)
+    print(f"timestamp sequenced: {cond_train.shape}, {cond_test.shape}")
     
+    if cond:
+        print("Load weather data")
+        weather_train, weather_test = load_and_preprocess_weather()
+        #TODO concate cond with weathet
+    
+    
+    train = np.asarray(MakeDATA(train_df, seq_len=seq_len))
+    test = np.asarray(MakeDATA(test_df, seq_len=seq_len))
+    
+    if train.shape[0] > cond_train.shape[0]:
+        train = train[cond_train.shape[0], : ,:]
+        test = test[cond_test.shape[0], :, :]
+    if train.shape[0] < cond_train.shape[0]:
+        cond_train = cond_train[train.shape[0], : , :]
+        cond_test = cond_test[test.shape[0], : , :]
+    
+    print(f"Train & Test shape after sequence: {train.shape}, {test.shape}")
+  
+    cond_features = cond_train.shape[1]
+    print(f"Conditioning features: {cond_features}")
+        
     train, test = train.transpose(0,2,1), test.transpose(0,2,1)
     print(f"Transposed data shape train:{train.shape}, test: {test.shape}")
     
-    weather_train, weather_test = load_and_preprocess_weather()
-    cond_train = check_weekend(weather_train)
-    cond_test  = check_weekend(weather_test)
-    
-    cond_features = cond_train.shape[1]
-    
-    cond_train = np.asarray(MakeDATA(cond_train, seq_len))
-    cond_test = np.asarray(MakeDATA(cond_test, seq_len))
-    
     cond_train, cond_test = cond_train.transpose(0,2,1), cond_test.transpose(0,2,1)
-    
-    cond_train = cond_train[:train.shape[0], :, :]
-    cond_test = cond_test[:test.shape[0], :, :]
+    print(f"Transpose Cond train: {cond_train.shape}, Transpose Cond test: {cond_test.shape}")
     
     train_dataset = TensorDataset(torch.from_numpy(train), torch.from_numpy(cond_train))
-    train_loader = DataLoader(train_dataset, batch_size)
+    train_loader = DataLoader(train_dataset, batch_size, shuffle=False)
     
     test_dataset = TensorDataset(torch.from_numpy(test), torch.from_numpy(cond_test))
-    test_loader = DataLoader(test_dataset, batch_size)
+    test_loader = DataLoader(test_dataset, batch_size, shuffle=False)
     
     return train_loader, test_loader, train_cols, test_cols, test, features, cond_features
     
-def serve_data_unet(types=["ev","hp","pv","re"], batch_size=10, overwrite=False, customers=9216):
+def serve_data_unet(types=["ev","hp","pv","re"], batch_size=10, overwrite=False, customers=9216, cond=False):
     if not os.path.isfile(os.path.join(PREPROCESSED_DIR, "meter_train_df.npy")) or overwrite:
         print("write to file")
         write_combined_to_disk(types)
     
     train_df, test_df = load_data()
-
+    print(f"Init data shape train:{train_df.shape}, test: {test_df.shape}")
+    
     train_df = train_df.iloc[:, :customers]
     test_df = test_df.iloc[:, :customers]
 
@@ -306,54 +271,37 @@ def serve_data_unet(types=["ev","hp","pv","re"], batch_size=10, overwrite=False,
     train_arr = np.asarray(train_df)
     test_arr = np.asarray(test_df)
     
-    img_train = train_arr.reshape(-1, 1, int(np.sqrt(customers)), int(np.sqrt(customers)))
-    img_test = test_arr.reshape(-1, 1, int(np.sqrt(customers)), int(np.sqrt(customers)))
+    col_row = int(np.sqrt(customers))
     
-    weather_train, weather_test = load_and_preprocess_weather()
-    cond_train = check_weekend(weather_train)
-    cond_test  = check_weekend(weather_test)
+    img_train = train_arr.reshape(-1, 1, col_row, col_row)
+    img_test = test_arr.reshape(-1, 1, col_row, col_row)
+    print(f"img data: {img_train.shape}, {img_test.shape}")
+    
+    idx = np.load(os.path.join(PREPROCESSING_DIR, "all_df_idx.npy"), allow_pickle=True)
+    idx_df = pd.DataFrame(idx, columns=["Date"])
+    cond_train, cond_test = train_test_split(idx_df)
+    cond_train = create_cond_unet(cond_train["Date"])
+    cond_test = create_cond_unet(cond_test["Date"])
+    print(f"timestamp sequenced: {cond_train.shape}, {cond_test.shape}")
         
-    cond_train = np.asarray(cond_train)[:img_train.shape[0], :]
-    cond_test = np.asarray(cond_test)[:img_test.shape[0], :]
+    if img_train.shape[0] > cond_train.shape[0]:
+        img_train = img_train[cond_train.shape[0], :]
+        img_test = img_test[cond_test.shape[0], :]
+    if img_train.shape[0] < cond_train.shape[0]:
+        cond_train = cond_train[img_train.shape[0], :]
+        cond_test = cond_test[img_test.shape[0], :]
+        
+    print(f"Filtered cond: {cond_train.shape}, {cond_test.shape}")
     
     cond_features = cond_train.shape[1]
     
     train_dataset = TensorDataset(torch.from_numpy(img_train), torch.from_numpy(cond_train))
-    train_loader = DataLoader(train_dataset, batch_size)
+    train_loader = DataLoader(train_dataset, batch_size, shuffle=False)
     
     test_dataset = TensorDataset(torch.from_numpy(img_test), torch.from_numpy(cond_test))
-    test_loader = DataLoader(test_dataset, batch_size)
+    test_loader = DataLoader(test_dataset, batch_size, shuffle=False)
     
     return  train_loader, test_loader, cond_features, (train_cols, test_cols), img_train, img_test     
 
-def serve_data_sine(batch_size, seq_len, var):
-    data = Sine_Pytorch(15000, seq_len, var)
-        
-    train_data, test_data = tts(data, train_size = 0.8, random_state = 41)
-
-    train_data = np.asarray(train_data).transpose(0,2,1)
-    test_data = np.asarray(test_data).transpose(0,2,1)
-    print(np.asarray(train_data).shape)
-
-    
-    weather_train, weather_test = load_and_preprocess_weather()
-    cond_train = check_weekend(weather_train)
-    cond_test  = check_weekend(weather_test)
-    
-    cond_features = cond_train.shape[1]
-    
-    cond_train = np.asarray(MakeDATA(cond_train, seq_len))
-    cond_test = np.asarray(MakeDATA(cond_test, seq_len))
-    
-    cond_train = cond_train[:np.asarray(train_data).shape[0], :, :]
-    cond_test = cond_test[:np.asarray(test_data).shape[0], :, :]
-    
-    train_dataset = TensorDataset(torch.from_numpy(train_data), torch.from_numpy(np.asarray(cond_train)))
-    train_loader = DataLoader(train_dataset, batch_size)
-    
-    test_dataset = TensorDataset(torch.from_numpy(test_data), torch.from_numpy(np.asarray(cond_test)))
-    test_loader = DataLoader(test_dataset, batch_size)
-    
-    return train_loader, test_loader, var, test_data
     
     
