@@ -1,0 +1,21 @@
+#DDPM
+timesteps: 1000 
+beta_schedule: "linear"
+objective: "pred_noise"
+
+#General NN
+epochs: 1000
+batch_size: 256 #5000
+model_name: "BaseLine"
+cond_model: "mlp"
+lr: 5*16**-4
+save_rate: 100
+decay_rate: 0.9
+
+#Data
+seq_len: 12
+
+#Transformer
+latent_dim: 1000
+num_layers: 6
+n_heads: 4

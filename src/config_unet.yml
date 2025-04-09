@@ -1,0 +1,28 @@
+#DDPM
+timesteps: 500
+beta_schedule: "linear"
+objective: "pred_noise"
+betas: (1e-4, 0.02)
+
+#General NN
+epochs: 10
+batch_size: 24
+model_name: "ContextUnet"
+cond_model: "mlp"
+lr: 1e-4
+save_rate: 5
+
+#Data
+seq_len: 24
+num_customers: 4
+
+#Transformer
+latent_dim: 256
+num_layers: 4
+n_heads: 8
+
+#ContextUnet
+img_rows: 64
+img_cols: 64
+channels: 1
+n_feat: 64
