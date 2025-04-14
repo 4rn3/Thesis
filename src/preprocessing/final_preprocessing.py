@@ -203,13 +203,14 @@ def create_timestamp_sequences(df, seq_len=336, timestamp_col='Date', normalize=
             if max_val > min_val:
                 result[col] = (result[col] - min_val) / (max_val - min_val)
     
+    
     result = result.astype(np.float32)
     
     sequences = []
     for i in range(len(result) - seq_len + 1):
         seq = result.iloc[i:i+seq_len].values
         sequences.append(seq)
-    
+        
     return np.array(sequences, dtype=np.float32)
 
 def create_cond_unet(timestamps):
@@ -222,11 +223,28 @@ def create_cond_unet(timestamps):
     
     return np.asarray(features)
     
+def load_and_preprocess_weather(time_idx):
+    df = pd.read_csv(os.path.join(COND_DATA_DIR, "Leicester.csv"))
+    df.drop(["dt", "timezone", "city_name", "weather_icon", "lat", "lon", "visibility", "sea_level", "grnd_level", "wind_gust", "rain_1h", "rain_3h", "snow_1h", "snow_3h", "weather_description", "weather_id"], axis=1, inplace=True)
+    df["dt_iso"] = df["dt_iso"].str.replace('UTC', '', regex=False)
+    df["dt_iso"] = pd.to_datetime(df["dt_iso"], utc=True )
+    df.set_index('dt_iso', inplace=True)
     
-def load_and_preprocess_weather():
-    df = pd.read_csv(os.path.join(COND_DATA_DIR, "london_weather.csv"))
-    df['date'] = pd.to_datetime(df['date'], format='%Y%m%d')
-    df.set_index('date', inplace=True)
+    df.index = df.index.tz_localize(None)
+    
+    df = df[df.index.isin(time_idx["Date"])]
+    
+    df = pd.get_dummies(df, columns=['weather_main'], prefix=['weather'])
+
+    weather_categories = ['Clouds', 'Rain', 'Clear', 'Snow']
+    for category in weather_categories:
+        col_name = f'weather_{category}'
+        if col_name not in df.columns:
+            df[col_name] = 0
+            
+    bool_columns = df.select_dtypes(include='bool').columns
+    if len(bool_columns) > 0:
+        df[bool_columns] = df[bool_columns].astype(int)
     
     train, test = train_test_split(df)
     
@@ -252,6 +270,37 @@ def cluster(data, k):
         
     return pd.DataFrame(clustered_data).T
 
+def align_array_lengths(train, test, cond_train, cond_test):
+    aligned_train = train.copy()
+    aligned_test = test.copy()
+    aligned_cond_train = cond_train.copy()
+    aligned_cond_test = cond_test.copy()
+    
+    if aligned_train.shape[0] > aligned_cond_train.shape[0]:
+        aligned_train = aligned_train[:aligned_cond_train.shape[0], :, :]
+        aligned_test = aligned_test[:aligned_cond_test.shape[0], :, :]
+    
+    if aligned_train.shape[0] < aligned_cond_train.shape[0]:
+        aligned_cond_train = aligned_cond_train[:aligned_train.shape[0], :, :]
+        aligned_cond_test = aligned_cond_test[:aligned_test.shape[0], :, :]
+    
+    return aligned_train, aligned_test, aligned_cond_train, aligned_cond_test
+
+def custom_concat(array1, array2):
+    batch_size = array1.shape[0]
+    seq_len1 = array1.shape[1]
+    seq_len2 = array2.shape[1]
+    features1 = array1.shape[2]
+    features2 = array2.shape[2]
+    
+    max_features = max(features1, features2)
+    
+    result = np.zeros((batch_size, seq_len1 + seq_len2, max_features), dtype=array1.dtype)
+    result[:, :seq_len1, :features1] = array1
+    result[:, seq_len1:, :features2] = array2
+    
+    return result
+    
 
 def serve_data(types=["ev","hp","pv","re"], seq_len=336, batch_size=256, overwrite=False, kmeans=True, k=5, cond=False):
     if not os.path.isfile(os.path.join(PREPROCESSED_DIR, "meter_train_df.npy")) or overwrite:
@@ -273,30 +322,45 @@ def serve_data(types=["ev","hp","pv","re"], seq_len=336, batch_size=256, overwri
     
     idx = np.load(os.path.join(PREPROCESSING_DIR, "all_df_idx.npy"), allow_pickle=True)
     idx_df = pd.DataFrame(idx, columns=["Date"])
-    cond_train, cond_test = train_test_split(idx_df)
-    cond_train = create_timestamp_sequences(cond_train, seq_len)
-    cond_test = create_timestamp_sequences(cond_test, seq_len)
+    c_train, c_test = train_test_split(idx_df)
+    cond_train = create_timestamp_sequences(c_train, seq_len)
+    cond_test = create_timestamp_sequences(c_test, seq_len)
     print(f"timestamp sequenced: {cond_train.shape}, {cond_test.shape}")
     
     if cond:
+        if not pd.api.types.is_datetime64_any_dtype(idx_df["Date"]):
+            idx_df["Date"] = pd.to_datetime(idx_df["Date"])
+            
         print("Load weather data")
-        weather_train, weather_test = load_and_preprocess_weather()
-        #TODO concate cond with weathet
-    
+        weather_train, weather_test = load_and_preprocess_weather(idx_df)
+        print(f"weather train and test shape: {weather_train.shape}, {weather_test.shape}")
+        weather_train_np = weather_train.values.astype(np.float32)
+        weather_test_np = weather_test.values.astype(np.float32)
+        
+        print("Adding seq len")
+        weather_train_seq = np.asarray(MakeDATA(weather_train_np, seq_len))
+        weather_test_seq = np.asarray(MakeDATA(weather_test_np, seq_len))
+        print(f"weather train and test shape: {weather_train_seq.shape}, {weather_test_seq.shape}")
+        
+        print("Align Weather and Time data")
+        weather_train_seq, weather_test_seq, cond_train, cond_test = align_array_lengths(weather_train_seq, weather_test_seq, 
+                                                                             cond_train, cond_test)
+        print(f"weather train and test shape: {weather_train_seq.shape}, {weather_test_seq.shape}")
+        print(f"Cond train and test shape: {cond_train.shape}, {cond_test.shape}")
+        
+        print("Concat weather and time")
+        cond_train = custom_concat(cond_train, weather_train_seq)
+        cond_test = custom_concat(cond_test, weather_test_seq)
+        print(f"Concat cond train and test shape: {cond_train.shape}, {cond_test.shape}")            
     
     train = np.asarray(MakeDATA(train_df, seq_len=seq_len))
     test = np.asarray(MakeDATA(test_df, seq_len=seq_len))
     
-    if train.shape[0] > cond_train.shape[0]:
-        train = train[cond_train.shape[0], : ,:]
-        test = test[cond_test.shape[0], :, :]
-    if train.shape[0] < cond_train.shape[0]:
-        cond_train = cond_train[train.shape[0], : , :]
-        cond_test = cond_test[test.shape[0], : , :]
+    train, test, cond_train, cond_test = align_array_lengths(train, test, cond_train, cond_test)
     
     print(f"Train & Test shape after sequence: {train.shape}, {test.shape}")
   
-    cond_features = cond_train.shape[1]
+    cond_features = cond_train.shape[2]
     print(f"Conditioning features: {cond_features}")
         
     train, test = train.transpose(0,2,1), test.transpose(0,2,1)
