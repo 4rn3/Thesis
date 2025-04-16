@@ -53,33 +53,83 @@ class KDEProgressionAnimator:
         plt.close(fig)
         return HTML(anim.to_jshtml())
     
-def vizual_comparison(generated_samples, real_samples, fpath):
-    #shape (batch_size, num_customers, seq_len)
+def vizual_comparison(generated_samples, real_samples, fpath, num_batch=4, use_all_data=False):
 
-    # Parameters
-    num_batches_to_plot = 4
-    max_customers_per_batch = 500  # optional limit, all customers takes 5+min
-    umap_sample_size = 5000        # total points to fit UMAP on, this decreases time a lot
+    #shape (batch, customers, seq_len)
+    
+    def combined_plot():
+            real_flat = real_samples.reshape(-1, real_samples.shape[-1])
+            gen_flat = generated_samples.reshape(-1, generated_samples.shape[-1])
+            combined = np.concatenate([real_flat, gen_flat], axis=0)
 
-    batch_indices = np.random.choice(real_samples.shape[0], size=num_batches_to_plot, replace=False)
+            # PCA
+            pca = PCA(n_components=2)
+            pca_result = pca.fit_transform(combined)
+            real_pca = pca_result[:real_flat.shape[0]]
+            gen_pca = pca_result[real_flat.shape[0]:]
+
+            # UMAP
+            umap_model = umap.UMAP(n_components=2, n_neighbors=15, min_dist=0.3, random_state=42)
+            umap_result = umap_model.fit_transform(combined)
+            real_umap = umap_result[:real_flat.shape[0]]
+            gen_umap = umap_result[real_flat.shape[0]:]
+
+            # t-SNE
+            max_perplexity = min(30, combined.shape[0] - 1)
+            perplexity = max(5, max_perplexity // 3)
+            tsne_model = TSNE(n_components=2, random_state=42, perplexity=perplexity)
+            tsne_result = tsne_model.fit_transform(combined)
+            real_tsne = tsne_result[:real_flat.shape[0]]
+            gen_tsne = tsne_result[real_flat.shape[0]:]
+
+            # Plotting
+            fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+            axes[0].scatter(real_pca[:, 0], real_pca[:, 1], alpha=0.5, label='Real', s=10)
+            axes[0].scatter(gen_pca[:, 0], gen_pca[:, 1], alpha=0.5, label='Generated', s=10)
+            axes[0].set_title('PCA')
+            axes[0].legend()
+            axes[0].grid(True)
+
+            axes[1].scatter(real_umap[:, 0], real_umap[:, 1], alpha=0.5, label='Real', s=10)
+            axes[1].scatter(gen_umap[:, 0], gen_umap[:, 1], alpha=0.5, label='Generated', s=10)
+            axes[1].set_title('UMAP')
+            axes[1].legend()
+            axes[1].grid(True)
+
+            axes[2].scatter(real_tsne[:, 0], real_tsne[:, 1], alpha=0.5, label='Real', s=10)
+            axes[2].scatter(gen_tsne[:, 0], gen_tsne[:, 1], alpha=0.5, label='Generated', s=10)
+            axes[2].set_title(f't-SNE (Perplexity={perplexity})')
+            axes[2].legend()
+            axes[2].grid(True)
+
+            plt.tight_layout()
+            plt.savefig(fpath)
+            plt.show()
+
+    # === Combined View ===
+    if use_all_data:
+        combined_plot()
+        return
+
+    # === Batch-by-Batch View ===
+    max_customers_per_batch = min(500, real_samples.shape[1])
+    batch_indices = np.random.choice(real_samples.shape[0], size=num_batch, replace=False)
 
     real_flat = real_samples.reshape(-1, real_samples.shape[-1])
     gen_flat = generated_samples.reshape(-1, generated_samples.shape[-1])
     combined = np.concatenate([real_flat, gen_flat], axis=0)
 
-    # ===== PCA =====
     pca = PCA(n_components=2)
     pca_result = pca.fit_transform(combined)
     real_pca_all = pca_result[:real_flat.shape[0]].reshape(real_samples.shape[0], real_samples.shape[1], 2)
     gen_pca_all = pca_result[real_flat.shape[0]:].reshape(generated_samples.shape[0], generated_samples.shape[1], 2)
 
-    # ===== UMAP =====
     selected_real = real_samples[batch_indices].reshape(-1, real_samples.shape[-1])
     selected_gen = generated_samples[batch_indices].reshape(-1, generated_samples.shape[-1])
     selected_combined = np.concatenate([selected_real, selected_gen], axis=0)
 
-    if selected_combined.shape[0] > umap_sample_size:
-        idx = np.random.choice(selected_combined.shape[0], size=umap_sample_size, replace=False)
+    if selected_combined.shape[0] > 5000:
+        idx = np.random.choice(selected_combined.shape[0], size=5000, replace=False)
         umap_fit_data = selected_combined[idx]
     else:
         umap_fit_data = selected_combined
@@ -87,64 +137,52 @@ def vizual_comparison(generated_samples, real_samples, fpath):
     umap_model = umap.UMAP(n_components=2, n_neighbors=15, min_dist=0.3, random_state=42)
     umap_model.fit(umap_fit_data)
 
-    # ===== t-SNE =====
-    tsne_model = TSNE(n_components=2, random_state=42)
-
-    fig, axes = plt.subplots(3, num_batches_to_plot, figsize=(5 * num_batches_to_plot, 5 * num_batches_to_plot), sharex=False)
+    fig, axes = plt.subplots(3, num_batch, figsize=(5 * num_batch, 15))
 
     for i, batch_idx in enumerate(batch_indices):
-        # ===== PCA =====
-        ax_pca = axes[0, i]
+        # PCA
         real_pca = real_pca_all[batch_idx][:max_customers_per_batch]
         gen_pca = gen_pca_all[batch_idx][:max_customers_per_batch]
-        ax_pca.scatter(real_pca[:, 0], real_pca[:, 1], alpha=0.5, label='Real', s=10)
-        ax_pca.scatter(gen_pca[:, 0], gen_pca[:, 1], alpha=0.5, label='Generated', s=10)
-        ax_pca.set_title(f'PCA - Batch {batch_idx}')
-        ax_pca.set_xlabel('PCA 1')
-        ax_pca.set_ylabel('PCA 2')
-        ax_pca.grid(True)
-        if i == 0:
-            ax_pca.legend()
+        ax = axes[0, i]
+        ax.scatter(real_pca[:, 0], real_pca[:, 1], alpha=0.5, label='Real', s=10)
+        ax.scatter(gen_pca[:, 0], gen_pca[:, 1], alpha=0.5, label='Generated', s=10)
+        ax.set_title(f'PCA - Batch {batch_idx}')
+        if i == 0: ax.legend()
+        ax.grid(True)
 
-        # ===== UMAP =====
-        ax_umap = axes[1, i]
+        # UMAP
         real_umap_input = real_samples[batch_idx][:max_customers_per_batch]
         gen_umap_input = generated_samples[batch_idx][:max_customers_per_batch]
         real_umap = umap_model.transform(real_umap_input)
         gen_umap = umap_model.transform(gen_umap_input)
+        ax = axes[1, i]
+        ax.scatter(real_umap[:, 0], real_umap[:, 1], alpha=0.5, label='Real', s=10)
+        ax.scatter(gen_umap[:, 0], gen_umap[:, 1], alpha=0.5, label='Generated', s=10)
+        ax.set_title(f'UMAP - Batch {batch_idx}')
+        if i == 0: ax.legend()
+        ax.grid(True)
 
-        ax_umap.scatter(real_umap[:, 0], real_umap[:, 1], alpha=0.5, label='Real', s=10)
-        ax_umap.scatter(gen_umap[:, 0], gen_umap[:, 1], alpha=0.5, label='Generated', s=10)
-        ax_umap.set_title(f'UMAP - Batch {batch_idx}')
-        ax_umap.set_xlabel('UMAP 1')
-        ax_umap.set_ylabel('UMAP 2')
-        ax_umap.grid(True)
-        if i == 0:
-            ax_umap.legend()
-
-        # ===== t-SNE =====
-        ax_tsne = axes[2, i]
+        # t-SNE
         real_tsne_input = real_samples[batch_idx][:max_customers_per_batch].reshape(-1, real_samples.shape[-1])
         gen_tsne_input = generated_samples[batch_idx][:max_customers_per_batch].reshape(-1, generated_samples.shape[-1])
-
         all_tsne_input = np.vstack([real_tsne_input, gen_tsne_input])
+        max_perplexity = min(30, all_tsne_input.shape[0] - 1)
+        perplexity = max(5, max_perplexity // 3)
+        tsne_model = TSNE(n_components=2, random_state=42, perplexity=perplexity)
         tsne_result = tsne_model.fit_transform(all_tsne_input)
-
         real_tsne = tsne_result[:real_tsne_input.shape[0]]
         gen_tsne = tsne_result[real_tsne_input.shape[0]:]
-
-        ax_tsne.scatter(real_tsne[:, 0], real_tsne[:, 1], alpha=0.5, label='Real', s=10)
-        ax_tsne.scatter(gen_tsne[:, 0], gen_tsne[:, 1], alpha=0.5, label='Generated', s=10)
-        ax_tsne.set_title(f't-SNE - Batch {batch_idx}')
-        ax_tsne.set_xlabel('t-SNE 1')
-        ax_tsne.set_ylabel('t-SNE 2')
-        ax_tsne.grid(True)
-        if i == 0:
-            ax_tsne.legend()
+        ax = axes[2, i]
+        ax.scatter(real_tsne[:, 0], real_tsne[:, 1], alpha=0.5, label='Real', s=10)
+        ax.scatter(gen_tsne[:, 0], gen_tsne[:, 1], alpha=0.5, label='Generated', s=10)
+        ax.set_title(f't-SNE - Batch {batch_idx}')
+        if i == 0: ax.legend()
+        ax.grid(True)
 
     plt.tight_layout()
     plt.savefig(fpath)
-    plt.show();
+    plt.show()
+
 
 def plot_jsd_per_customer(generated_samples, real_samples, fpath):
 
@@ -221,5 +259,7 @@ def plot_kde_samples(generated_samples, real_samples, num_samples=100000, random
     plt.tight_layout()
     plt.savefig(fpath)
     if show:
-        plt.show();
+        plt.show()
+    
+    plt.close()
     
