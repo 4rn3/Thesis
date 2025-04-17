@@ -11,47 +11,12 @@ from scipy.spatial.distance import jensenshannon
 import torch
 from IPython.display import HTML
 from matplotlib.animation import PillowWriter
+import imageio.v2 as imageio
 
 
-class KDEProgressionAnimator:
-    def __init__(self, real_samples, projected_snapshots):
-
-        #shape (batch, customers, seq_len)
-
-        self.real_flat = real_samples.reshape(-1)
-        self.snapshots = [gen.reshape(-1) for gen in projected_snapshots]
-        self.real_kde = gaussian_kde(self.real_flat)
-
-        self.x_min = min(np.min(self.real_flat), *(np.min(s) for s in self.snapshots))
-        self.x_max = max(np.max(self.real_flat), *(np.max(s) for s in self.snapshots))
-        self.x_grid = np.linspace(self.x_min, self.x_max, 200)
-
-    def save(self, filename="kde_progression.gif", fps=2):
-        anim = self.animate()
-        anim.save(filename, writer=PillowWriter(fps=fps))
-
-    def animate(self, interval=300):
-        fig, ax = plt.subplots(figsize=(8, 5))
-        real_line, = ax.plot(self.x_grid, self.real_kde(self.x_grid), label="Real", color="blue")
-        gen_line, = ax.plot([], [], label="Generated", color="orange")
-        title = ax.set_title("KDE Evolution")
-
-        ax.legend()
-        ax.set_xlim(self.x_min, self.x_max)
-        ax.set_ylim(0, None)
-        ax.set_xlabel("Projected Value")
-        ax.set_ylabel("Density")
-        ax.grid(True)
-
-        def update(i):
-            kde = gaussian_kde(self.snapshots[i])
-            gen_line.set_data(self.x_grid, kde(self.x_grid))
-            title.set_text(f"KDE Evolution - Step {i+1}")
-            return gen_line, title
-
-        anim = FuncAnimation(fig, update, frames=len(self.snapshots), interval=interval, blit=False)
-        plt.close(fig)
-        return HTML(anim.to_jshtml())
+def make_gif_from_images(image_paths, output_path="kde_progression.gif", fps=2):
+    frames = [imageio.imread(p) for p in image_paths]
+    imageio.mimsave(output_path, frames, fps=fps)
     
 def vizual_comparison(generated_samples, real_samples, fpath, num_batch=4, use_all_data=False):
 
@@ -185,28 +150,39 @@ def vizual_comparison(generated_samples, real_samples, fpath, num_batch=4, use_a
 
 
 def plot_jsd_per_customer(generated_samples, real_samples, fpath):
+    # shape: (batch_size, num_customers, seq_len)
 
-    #shape (batch_size, num_customers, seq_len)
-    
     if isinstance(real_samples, torch.Tensor):
         real_samples = real_samples.numpy()
     if isinstance(generated_samples, torch.Tensor):
         generated_samples = generated_samples.numpy()
 
     batch_size, num_customers, seq_len = real_samples.shape
-    
-    jsd_values = []
 
+    jsd_values = []
     for i in range(num_customers):
         real_customer_data = real_samples[:, i, :]
         gen_customer_data = generated_samples[:, i, :]
 
-        real_customer_data = real_customer_data / np.sum(real_customer_data, axis=-1, keepdims=True)
-        gen_customer_data = gen_customer_data / np.sum(gen_customer_data, axis=-1, keepdims=True)
+        # Normalize, add small epsilon to avoid division by zero
+        real_customer_data = real_customer_data / (np.sum(real_customer_data, axis=-1, keepdims=True) + 1e-8)
+        gen_customer_data = gen_customer_data / (np.sum(gen_customer_data, axis=-1, keepdims=True) + 1e-8)
 
-        jsd = jensenshannon(np.mean(real_customer_data, axis=0), np.mean(gen_customer_data, axis=0))
-        jsd_values.append(jsd)
+        real_mean = np.mean(real_customer_data, axis=0)
+        gen_mean = np.mean(gen_customer_data, axis=0)
 
+        if not np.all(np.isfinite(real_mean)) or not np.all(np.isfinite(gen_mean)):
+            continue  # skip this customer if data is not valid
+
+        jsd = jensenshannon(real_mean, gen_mean)
+        if np.isfinite(jsd):
+            jsd_values.append(jsd)
+
+    if len(jsd_values) == 0:
+        print("No valid JSD values to plot.")
+        return
+
+    # Plot only finite, valid values
     plt.figure(figsize=(8, 6))
     plt.hist(jsd_values, bins=30, alpha=0.7, color='blue', edgecolor='black')
     plt.title('Histogram of Jensen-Shannon Divergence per Customer')
@@ -214,9 +190,9 @@ def plot_jsd_per_customer(generated_samples, real_samples, fpath):
     plt.ylabel('Frequency')
     plt.grid(True)
     plt.savefig(fpath)
-    plt.show();
+    plt.show()
     
-def plot_kde_samples(generated_samples, real_samples, num_samples=100000, random_state=42, reduction="mean", show=True, fpath=""):
+def plot_kde_samples(generated_samples, real_samples, num_samples=100000, random_state=42, reduction="mean", show=True, fpath="", epoch=None):
     if isinstance(real_samples, torch.Tensor):
         real_samples = real_samples.cpu().numpy()
     if isinstance(generated_samples, torch.Tensor):
@@ -251,7 +227,12 @@ def plot_kde_samples(generated_samples, real_samples, num_samples=100000, random
     plt.plot(x_vals, gen_kde(x_vals), label='Generated Samples', color='orange', lw=2)
     plt.fill_between(x_vals, 0, real_kde(x_vals), color='blue', alpha=0.3)
     plt.fill_between(x_vals, 0, gen_kde(x_vals), color='orange', alpha=0.3)
-    plt.title(f'KDE Comparison (reduction: {reduction})')
+    
+    if epoch == None:
+        plt.title(f'KDE Comparison (reduction: {reduction})')
+    else:
+        plt.title(f'KDE Comparison Epoch:{epoch} (reduction: {reduction})')
+        
     plt.xlabel('Reduced Value')
     plt.ylabel('Density')
     plt.legend()

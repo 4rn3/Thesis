@@ -133,6 +133,63 @@ class EmbedFC(nn.Module):
         # apply the model layers to the flattened tensor
         return self.model(x)
 
+# Takes ages to do a single epoch
+# class EmbedFC_3dim(nn.Module):
+#     def __init__(self, input_dim, emb_dim, n_heads=4, n_layers=2, dropout=0.1):
+#         super(EmbedFC_3dim, self).__init__()
+
+#         self.input_dim = input_dim
+#         self.emb_dim = emb_dim
+
+#         self.input_proj = nn.Linear(input_dim, emb_dim)
+
+#         encoder_layer = nn.TransformerEncoderLayer(
+#             d_model=emb_dim,
+#             nhead=n_heads,
+#             dim_feedforward=emb_dim * 2,
+#             dropout=dropout,
+#             activation="gelu",
+#             batch_first=True
+#         )
+#         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
+
+#         # Aggregate over sequence dimension after transformer
+#         self.agg = nn.AdaptiveAvgPool1d(1)  # (B, D, S) -> (B, D, 1) -> (B, D)
+
+#     def forward(self, x):
+#         if x.dim() == 2:
+#             x = x.unsqueeze(1)  # (B, F) -> (B, 1, F)
+
+#         # Project input to embedding dimension
+#         x = self.input_proj(x)  # (B, S, emb_dim)
+
+#         # Pass through Transformer
+#         x = self.transformer(x)  # (B, S, emb_dim)
+
+#         # Transpose to (B, emb_dim, S) for pooling
+#         x = x.transpose(1, 2)
+#         x = self.agg(x)  # (B, emb_dim, 1)
+#         x = x.squeeze(-1)  # (B, emb_dim)
+
+#         return x
+
+class EmbedFC_3dim(nn.Module):
+    def __init__(self, input_dim, emb_dim, hidden_dim=64, kernel_size=3):
+        super().__init__()
+        self.conv1 = nn.Conv1d(input_dim, hidden_dim, kernel_size=kernel_size, padding=kernel_size // 2)  # (B, F, S) -> (B, H, S)
+        self.conv2 = nn.Conv1d(hidden_dim, emb_dim, kernel_size=kernel_size, padding=kernel_size // 2)    # (B, H, S) -> (B, D, S)
+        self.pool = nn.AdaptiveAvgPool1d(1)
+
+    def forward(self, x):
+        if x.dim() == 2:
+            x = x.unsqueeze(1)  # (B, F) -> (B, 1, F)
+
+        x = x.transpose(1, 2)  # (B, S, F) -> (B, F, S)
+        x = self.conv1(x)      # (B, F, S) -> (B, H, S)
+        x = self.conv2(x)      # (B, H, S) -> (B, D, S)
+        x = self.pool(x).squeeze(-1)  # (B, D)
+        return x
+
 class ContextUnet(nn.Module):
     def __init__(self, in_channels, n_feat=256, n_cfeat=10, height=64, cond_model = "mlp", latent_dim=256):  # cfeat - context features
         super(ContextUnet, self).__init__()
@@ -160,8 +217,8 @@ class ContextUnet(nn.Module):
         
         assert self.cond_model in {"mlp", "te", "stft", "fft"}, "Chosen conditioning model was not valid, the options are mlp, te, fft and stft"
 
-        self.contextembed1 = EmbedFC(n_cfeat, 4 * n_feat)
-        self.contextembed2 = EmbedFC(n_cfeat, 2 * n_feat)
+        self.contextembed1 = EmbedFC_3dim(n_cfeat, 4 * n_feat)
+        self.contextembed2 = EmbedFC_3dim(n_cfeat, 2 * n_feat)
         
         if self.cond_model == "te":
             self.pre_embed = TEConditionalEmbedding(features = n_cfeat)
@@ -186,6 +243,7 @@ class ContextUnet(nn.Module):
         )
         
         self.te_fc = nn.Linear(self.latent_dim ,self.n_cfeat)
+        self.c_gru = nn.GRU(input_size=n_cfeat, hidden_size=n_cfeat, batch_first=True)
 
     def forward(self, x, t, c=None):
         #print(f"input shape: {x.shape}")
@@ -200,7 +258,7 @@ class ContextUnet(nn.Module):
         
         if c is None:
             c = torch.zeros(x.shape[0], self.n_cfeat).to(x.device)
-
+            
         if c is not None and self.cond_model == "te":
             c = c.reshape(x.shape[0], self.n_cfeat, 1)
             c = self.pre_embed(c).squeeze()
