@@ -9,9 +9,8 @@ from sklearn.manifold import TSNE
 import umap
 from scipy.spatial.distance import jensenshannon
 import torch
-from IPython.display import HTML
-from matplotlib.animation import PillowWriter
 import imageio.v2 as imageio
+from sklearn.metrics.pairwise import rbf_kernel
 
 
 def make_gif_from_images(image_paths, output_path="kde_progression.gif", fps=2):
@@ -243,4 +242,32 @@ def plot_kde_samples(generated_samples, real_samples, num_samples=100000, random
         plt.show()
     
     plt.close()
-    
+
+def mmd_histogram_per_customer(real, synth, gamma=None, bins=30, show=True, title="Customer-wise MMD Histogram", fpath=""):
+    batch, num_customers, seq_len = real.shape
+    if gamma is None:
+        gamma = 1.0 / seq_len
+
+    mmd_scores = []
+    for customer in range(num_customers):
+        real_c = real[:, customer, :]  # shape: (batch, seq_len)
+        synth_c = synth[:, customer, :]  # shape: (batch, seq_len)
+
+        XX = rbf_kernel(real_c, real_c, gamma=gamma)
+        YY = rbf_kernel(synth_c, synth_c, gamma=gamma)
+        XY = rbf_kernel(real_c, synth_c, gamma=gamma)
+
+        mmd = np.mean(XX) + np.mean(YY) - 2 * np.mean(XY)
+        mmd_scores.append(mmd)
+
+    mmd_scores = np.array(mmd_scores)
+
+    plt.figure(figsize=(8, 4))
+    plt.hist(mmd_scores, bins=bins, edgecolor='black', color='skyblue')
+    plt.xlabel("MMD per customer")
+    plt.ylabel("Frequency")
+    plt.title(title)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(fpath)
+    plt.show()
