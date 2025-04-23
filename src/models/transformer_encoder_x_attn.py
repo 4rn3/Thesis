@@ -66,7 +66,6 @@ class CrossAttention(nn.Module):
 
 
 class TransEncoder(nn.Module):
-    
     def __init__(self, features, latent_dim=256, num_heads=8, num_layers=6, seq_len=15, cond_model="mlp", cond_features=None, dropout=0.1, activation='gelu', ff_size=1024, device="cpu"):
         
         super().__init__()
@@ -87,12 +86,14 @@ class TransEncoder(nn.Module):
         self.emb_timestep = TimestepEmbedder(self.latent_dim, self.pos_enc)
         self.input_dim = nn.Linear(self.channels, self.latent_dim)
         self.output_dim = nn.Linear(self.latent_dim, self.channels)
+        
         self.TransEncLayer = nn.TransformerEncoderLayer(
             d_model=self.latent_dim,
             nhead=self.num_heads,
             dim_feedforward=self.ff_size,
             dropout=self.dropout,
-            activation=self.activation
+            activation=self.activation,
+            batch_first=False
         )
 
         self.TransEncodeR = nn.TransformerEncoder(
@@ -120,25 +121,40 @@ class TransEncoder(nn.Module):
             self.conditional_embedding = STFTEmbedding(seq_len=self.channels, device=self.device)
            
         self.fc1 = nn.Linear(16, self.latent_dim)  # 16 is output of stft after reshape
-        
+   
+    
     def forward(self, x, t, cond_input=None):
         # Initial processing of input
+        if torch.isnan(x).any():
+            print("NaN detected in input")
+            x = torch.nan_to_num(x, nan=0.0)
+        
+        #print(f"init input shape: {x.shape}")
         x = torch.transpose(x, 1, 2)
+        #print(f"input after transpose shape: {x.shape}")
         x = self.input_dim(x)
+        #print(f"input after Lin shape: {x.shape}")
         x = torch.transpose(x, 0, 1)  # [seq_len, batch, features]
+        #print(f"Lin after transpose shape: {x.shape}")
+        
         
         # Time embedding
         embed = self.emb_timestep(t)
+        #print(f"embed shape: {embed.shape}")
         time_added_data = embed + x
+        #print(f"embed + x shape: {time_added_data.shape}")
         time_added_data = self.pos_enc(time_added_data)
+        #print(f"pos enc shape: {time_added_data.shape}")
         
         # Transformer encoder
         trans_output = self.TransEncodeR(time_added_data)
+        #print(f"trans output shape: {trans_output.shape}")
         
         # Handle conditional input
         if cond_input is not None:
+            #print(f"init cond shape: {cond_input.shape}")
             cond_emb = self.conditional_embedding(cond_input)
-            
+            #print(f"output cond shape: {cond_emb.shape}")
             # Adjust dimensions based on conditioning model
             if self.cond_model == "mlp":
                 cond_emb = cond_emb.permute(1, 0, 2)  # [seq_len, batch, features]
