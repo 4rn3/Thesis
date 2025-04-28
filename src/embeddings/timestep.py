@@ -14,4 +14,8 @@ class TimestepEmbedder(nn.Module):
         )
 
     def forward(self, timesteps):
-        return self.time_embed(self.sequence_pos_encoder.pe[timesteps]).permute(1, 0, 2)
+        time_embedded = self.time_embed(self.sequence_pos_encoder.pe[timesteps])
+        if time_embedded.dim() == 2:
+            return time_embedded.unsqueeze(0)
+        else:
+            return time_embedded.permute(1, 0, 2)
