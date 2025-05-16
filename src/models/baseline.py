@@ -9,10 +9,8 @@ class PositionalEmbedding(nn.Module):
         self.dim = dim
 
     def forward(self, noise_level):
-        # Ensure noise_level is (B, 1)
         if noise_level.ndim == 1:
             noise_level = noise_level.unsqueeze(-1)
-        # Ensure noise_level is float
         noise_level = noise_level.float()
 
         half_dim = self.dim // 2
@@ -30,22 +28,7 @@ class PositionalEmbedding(nn.Module):
         return embeddings
     
 class BaselineDenoisingNetwork(nn.Module):
-    """
-    The Denoising Network based on Figure 3 (left) of the paper.
-    Adapted for input shape [batch_size, features, sequence_length].
-    Handles conditioning input y (B, C_per_step, S) by flattening and using a standard MLP.
-    """
     def __init__(self, seq_len, features, cond_features_per_step, hidden_dim, num_heads=4):
-        """
-        Initializes the BaselineDenoisingNetwork.
-
-        Args:
-            seq_len (int): Length of the input sequence (S).
-            features (int): Number of features in the input data (F).
-            cond_features_per_step (int): Number of features per step in the conditioning data (C_per_step).
-            hidden_dim (int): Hidden dimension for main processing path and conditioning MLP output (H).
-            num_heads (int): Number of heads for Multi-Head Self-Attention.
-        """
         super().__init__()
         self.features = features
         self.seq_len = seq_len
@@ -53,7 +36,6 @@ class BaselineDenoisingNetwork(nn.Module):
         self.cond_features_per_step = cond_features_per_step
         self.cond_features_total = cond_features_per_step * seq_len # Calculate total flattened features
 
-        # --- Main Path Modules ---
         self.lstm_embedding = nn.LSTM(
             input_size=features,
             hidden_size=hidden_dim,
@@ -75,8 +57,6 @@ class BaselineDenoisingNetwork(nn.Module):
         )
         self.mlp_norm = nn.LayerNorm(hidden_dim)
 
-        # --- Conditioning Path Module (Standard MLP) ---
-        # Use a standard MLP (Linear -> GELU -> Linear) for flattened conditioning
         # Input: (B, C_total), Output: (B, H)        
         self.cond_embedding = nn.Sequential(
             nn.Linear(self.cond_features_total, hidden_dim * 2), # Maps C*S -> H*2
@@ -85,23 +65,11 @@ class BaselineDenoisingNetwork(nn.Module):
         )
 
 
-        # --- Final Layer ---
         self.final_layer = nn.Linear(hidden_dim, features)
 
 
     def forward(self, x_n, sqrt_alpha_bar, y):
-        """
-        Forward pass of the denoising network using flattened MLP conditioning.
 
-        Args:
-            x_n (torch.Tensor): Noisy input data, shape (B, F, S).
-            sqrt_alpha_bar (torch.Tensor): Noise level for each batch item, shape (B,) or (B, 1).
-            y (torch.Tensor): Conditioning information, shape (B, C_per_step, S).
-
-        Returns:
-            torch.Tensor: Predicted noise epsilon_theta, shape (B, F, S).
-        """
-        # Commenting out debug prints for clarity now that it works
         # print(f"--- Denoising Network Forward (Flattened MLP Conditioning) ---")
         # print(f"Initial x_n shape: {x_n.shape}")
         # print(f"Initial sqrt_alpha_bar shape: {sqrt_alpha_bar.shape}")
@@ -109,7 +77,6 @@ class BaselineDenoisingNetwork(nn.Module):
         batch_size = x_n.shape[0]
         seq_len = x_n.shape[2] # S
 
-        # --- Prepare Inputs ---
         x_n_permuted = x_n.permute(0, 2, 1) # (B, F, S) -> (B, S, F)
         # print(f"x_n_permuted shape (for LSTM): {x_n_permuted.shape}")
 
@@ -122,7 +89,6 @@ class BaselineDenoisingNetwork(nn.Module):
         # print(f"y_flat shape (for Cond MLP): {y_flat.shape}")
 
 
-        # --- Process Main Path ---
         lstm_out, _ = self.lstm_embedding(x_n_permuted) # (B, S, H)
         # print(f"lstm_out shape: {lstm_out.shape}")
 
@@ -147,19 +113,16 @@ class BaselineDenoisingNetwork(nn.Module):
         mlp_output_norm = self.mlp_norm(mlp_output_res) # (B, S, H) - Main path output
         # print(f"mlp_output_norm shape (main path final): {mlp_output_norm.shape}")
 
-        # --- Process Conditioning Path using Standard MLP ---
         # Input y_flat shape is (B, C*S)
         # Apply the MLP defined in __init__
         cond_global_emb = self.cond_embedding(y_flat) # Output shape: (B, H)
         # print(f"cond_global_emb shape: {cond_global_emb.shape}")
 
-        # --- Combine Main Path and Conditioning ---
         # Add the global conditioning vector (broadcasted across sequence length S)
         # Unsqueeze to (B, 1, H) for broadcasting
         final_repr = mlp_output_norm + cond_global_emb.unsqueeze(1) # (B, S, H) + (B, 1, H) -> (B, S, H)
         # print(f"final_repr shape (Main + Global Cond): {final_repr.shape}")
 
-        # --- Final Layer ---
         predicted_noise_permuted = self.final_layer(final_repr) # (B, S, F)
         # print(f"predicted_noise_permuted shape (before final permute): {predicted_noise_permuted.shape}")
 
