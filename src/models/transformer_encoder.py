@@ -11,7 +11,7 @@ from embeddings.fft import FFTEmbedding
 
 class TransEncoder(nn.Module):
     
-    def __init__(self, features, latent_dim=256, num_heads=8, num_layers = 6, seq_len = 15 ,cond_model = "mlp", cond_features = None ,dropout = 0.1, activation = 'gelu', ff_size = 1024, device="cpu"):
+    def __init__(self, features, latent_dim=256, num_heads=8, num_layers = 6, seq_len = 15 ,cond_model = "mlp", cond_features = None ,dropout = 0.1, activation = 'gelu', ff_size = 1024, device="cpu", fft_phase=False):
         
         super().__init__()
         self.model_name = "TransEncoder"
@@ -26,6 +26,7 @@ class TransEncoder(nn.Module):
         self.dropout = dropout
         self.device = device
         self.seq_len = seq_len
+        self.fft_phase = fft_phase
                 
         self.pos_enc = PositionalEncoding(self.latent_dim)
         self.emb_timestep = TimestepEmbedder(self.latent_dim, self.pos_enc)
@@ -42,17 +43,18 @@ class TransEncoder(nn.Module):
         
         self.cond_features = cond_features
         self.cond_model = cond_model
-        assert self.cond_model in {"mlp", "te", "stft", "fft"}, "Chosen conditioning model was not valid, the options are mlp, te, fft and spectro"
+        assert self.cond_model in {"mlp", "te", "stft", "fft"}, "Chosen conditioning model was not valid, the options are mlp, te, fft and stft"
         if cond_model == "mlp":
             self.conditional_embedding = MLPConditionalEmbedding(self.seq_len, self.latent_dim)
         if cond_model == "te":
             self.conditional_embedding = TEConditionalEmbedding(features=self.cond_features)
         if cond_model == "stft":
-            self.conditional_embedding = STFTEmbedding(seq_len=self.channels, device=self.device)
+            self.conditional_embedding = STFTEmbedding(in_features=self.cond_features, sequence_length=self.seq_len, n_fft=256, hop_length=64, latent_dim=self.latent_dim) 
         if cond_model == "fft":
-            self.conditional_embedding = FFTEmbedding(in_features= self.cond_features, hidden_size=self.latent_dim)
+            self.conditional_embedding = FFTEmbedding(seq_len=self.seq_len, hidden_size=self.latent_dim, use_phase=self.fft_phase)
            
-        self.fc1 = nn.Linear(16, self.latent_dim) #16 is output of stft after reshape
+        self.fc1 = nn.Linear(self.latent_dim, self.seq_len)
+        #self.fc1 = nn.Linear(16, self.latent_dim) #needs to be like this or weights won't load for regulat Transfusion
         
     def forward(self, x, t, cond_input = None):
         #print(f"Input shape: {x.shape}")
@@ -75,17 +77,14 @@ class TransEncoder(nn.Module):
             cond_emb = self.conditional_embedding(cond_input)
             #print(f"cond emb shape: {cond_emb.shape}")
             
-            if self.cond_model == "mlp":
+            if self.cond_model != "te":
+                #print(cond_emb.shape)
                 cond_emb = cond_emb.permute(1,0,2)
+                #print(cond_emb.shape)
             
-            if self.cond_model == "te" or self.cond_model == "fft":
+            if self.cond_model == "te":
                 cond_emb = cond_emb.permute(2,0,1)
             
-            if self.cond_model == "stft":
-                cond_emb = cond_emb.reshape(x.shape[1], self.seq_len, -1) #x.shape[1] is batch size
-                cond_emb = self.fc1(cond_emb)
-                cond_emb = cond_emb.permute(1, 0, 2)
-                
             #print(f"Cond embed shape: {cond_emb.shape}")
             
             cond_pooled = cond_emb.mean(dim=0, keepdim=True)

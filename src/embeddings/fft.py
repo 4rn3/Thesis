@@ -1,70 +1,52 @@
 import torch
 import torch.nn as nn
+import torch.fft
 
 class FFTEmbedding(nn.Module):
-    def __init__(self, in_features, hidden_size, norm_output=True, learnable_real_weights=True, learnable_imag_weights=True, use_inverse_fft=True):
-        super(FFTEmbedding, self).__init__()
-        
-        self.in_features = in_features
+    def __init__(self, seq_len, hidden_size, use_phase=False):
+        super().__init__()
+        self.original_seq_len = seq_len
         self.hidden_size = hidden_size
-        self.norm_output = norm_output
-        self.use_inverse_fft = use_inverse_fft
+        self.use_phase = use_phase
+
+        num_fft_components = self.original_seq_len // 2 + 1
+
+        if self.use_phase:
+            self.mlp_input_size = 2 * num_fft_components
+        else:
+            self.mlp_input_size = num_fft_components
         
-        if learnable_real_weights:
-            self.real_projection = nn.Parameter(
-                torch.Tensor(hidden_size, in_features)
-            )
-            nn.init.xavier_uniform_(self.real_projection)
-        else:
-            self.register_parameter('real_projection', None)
-            
-        if learnable_imag_weights:
-            self.imag_projection = nn.Parameter(
-                torch.Tensor(hidden_size, in_features)
-            )
-            nn.init.xavier_uniform_(self.imag_projection)
-        else:
-            self.register_parameter('imag_projection', None)
-            
-        self.real_norm = nn.LayerNorm([hidden_size])
-        self.imag_norm = nn.LayerNorm([hidden_size])
-            
+        self.fc1 = nn.Linear(self.mlp_input_size, self.hidden_size)
+        self.leaky_relu = nn.LeakyReLU(negative_slope=0.01)
+        self.fc2 = nn.Linear(self.hidden_size, self.hidden_size)
+    
     def forward(self, x):
+
+        if not x.is_floating_point():
+            x = x.float()
+
+        # x shape: (batch_size, self.original_seq_len)
+        # print(f"Input x shape: {x.shape}")
         
-        batch_size, features, seq_len = x.shape
-        assert features == self.in_features, f"Expected {self.in_features} features, got {features}"
-        
-        x_fft = torch.fft.fft(x, dim=2) 
-        
-        x_real = x_fft.real  
-        x_imag = x_fft.imag
-        
-        if self.real_projection is not None:
-            x_real = x_real.transpose(1, 2)  
-            x_real = torch.matmul(x_real, self.real_projection.t()) 
-            x_real = x_real.transpose(1, 2)
-            
-        if self.imag_projection is not None:
-            x_imag = x_imag.transpose(1, 2) 
-            x_imag = torch.matmul(x_imag, self.imag_projection.t())  
-            x_imag = x_imag.transpose(1, 2)
-            
-        if self.norm_output:
-            x_real = x_real.transpose(1, 2)  
-            x_imag = x_imag.transpose(1, 2)
-            
-            x_real = self.real_norm(x_real)
-            x_imag = self.imag_norm(x_imag)
-            
-            x_real = x_real.transpose(1, 2)
-            x_imag = x_imag.transpose(1, 2)
-            
-        if self.use_inverse_fft:
-            x_complex = torch.complex(x_real, x_imag)
-            
-            output = torch.fft.ifft(x_complex, dim=2).real
+        x_fft = torch.fft.rfft(x, n=self.original_seq_len, dim=-1)
+        # print(f"Shape after rfft: {x_fft.shape}, dtype: {x_fft.dtype}")
+
+        if self.use_phase:
+            # real and imaginary parts
+            x_real = x_fft.real
+            x_imag = x_fft.imag
+            mlp_input = torch.cat((x_real, x_imag), dim=-1)
+            # Expected shape for mlp_input: (batch_size, 2 * (self.original_seq_len // 2 + 1))
         else:
-            concat = torch.cat([x_real, x_imag], dim=1)
-            output = concat[:, :self.hidden_size, :] 
-            
-        return output
+            # magnitudes
+            mlp_input = x_fft.abs()
+            # Expected shape for mlp_input: (batch_size, self.original_seq_len // 2 + 1)
+        
+        # print(f"Shape of mlp_input: {mlp_input.shape}")
+
+        out = self.fc1(mlp_input)
+        # print(f"Shape after fc1: {out.shape}")
+        out = self.leaky_relu(out)
+        out = self.fc2(out)
+        # print(f"Shape after fc2 (output): {out.shape}")
+        return out
