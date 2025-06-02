@@ -54,7 +54,7 @@ class TransEncoder(nn.Module):
             self.conditional_embedding = FFTEmbedding(seq_len=self.seq_len, hidden_size=self.latent_dim, use_phase=self.fft_phase)
            
         self.fc1 = nn.Linear(self.latent_dim, self.seq_len)
-        #self.fc1 = nn.Linear(16, self.latent_dim) #needs to be like this or weights won't load for regulat Transfusion
+        #self.fc1 = nn.Linear(16, self.latent_dim) #needs to be like this or weights won't load for regular Transfusion
         
     def forward(self, x, t, cond_input = None):
         #print(f"Input shape: {x.shape}")
