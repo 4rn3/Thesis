@@ -1,8 +1,8 @@
-# High-Fidelity Synthetic Smart Meter Data via Diffusion Models
+# DIFFUSION MODELS FOR ENERGY TIME SERIES GENERATION
 
 This repository contains the implementation, evaluation, and thesis manuscript for the master's thesis titled:
 
-> **High-Fidelity Synthetic Smart Meter Data via Diffusion Models**  
+> **DIFFUSION MODELS FOR ENERGY TIME SERIES GENERATION**  
 > By Arne  
 > Master’s Thesis in Artificial Intelligence
 
